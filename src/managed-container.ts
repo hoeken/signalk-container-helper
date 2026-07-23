@@ -168,11 +168,31 @@ export class ManagedContainer {
     return resolved
   }
 
-  /** Match this container in a listContainers() result. */
+  /**
+   * Match this container in a listContainers() result.
+   *
+   * `unprefixedName` (supplied by signalk-container since the configurable
+   * namespace landed) is the correct, namespace-agnostic key — a container
+   * is `<namespace>-<name>`, and the namespace is `sk` only by default
+   * (a devcontainer runs `devpod-`, and operators can set any value via
+   * SIGNALK_CONTAINER_NAMESPACE). We must NOT hard-code `sk-`, or the helper
+   * would fail to find its own container under a non-default namespace.
+   *
+   * The fallback covers only a signalk-container old enough to predate
+   * `unprefixedName`: match an exact name, or a `-<name>` suffix (any
+   * namespace prefix) — still without assuming the prefix is `sk`.
+   */
   private matchInfo(list: ContainerInfo[]): ContainerInfo | undefined {
     const { name } = this.options
-    return list.find(
-      (c) => c.unprefixedName === name || c.name === `sk-${name}` || c.name === name
+    // Two passes so the reliable key wins regardless of list order: an
+    // exact unprefixedName match anywhere beats a legacy suffix match.
+    return (
+      list.find((c) => c.unprefixedName === name) ??
+      list.find(
+        (c) =>
+          c.unprefixedName === undefined &&
+          (c.name === name || c.name.endsWith(`-${name}`))
+      )
     )
   }
 

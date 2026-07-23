@@ -130,7 +130,9 @@ describe('ManagedContainer.start', () => {
     expect(manager.ensureRunning).toHaveBeenCalled()
   })
 
-  it('matches the live container by sk- prefix when unprefixedName is absent', async () => {
+  it('matches by name suffix (any namespace) when unprefixedName is absent', async () => {
+    // The drifted image (0.1.0 vs requested 1.0.0) means the self-heal only
+    // fires recreate if this container was actually found by suffix match.
     const manager = makeManager({
       containers: [{ name: 'sk-test-service', image: `${IMAGE}:0.1.0`, state: 'running' }]
     })
@@ -139,7 +141,56 @@ describe('ManagedContainer.start', () => {
 
     await container.start('1.0.0')
 
-    expect(manager.recreate).toHaveBeenCalled()
+    expect(manager.recreate).toHaveBeenCalledWith(
+      'test-service',
+      expect.objectContaining({ image: IMAGE, tag: '1.0.0' }),
+      undefined
+    )
+  })
+
+  it('matches under a non-default namespace (e.g. devpod-) without unprefixedName', async () => {
+    // A hard-coded `sk-` guess would miss this container entirely and skip
+    // the self-heal recreate. Suffix matching finds it regardless of prefix.
+    const manager = makeManager({
+      containers: [{ name: 'devpod-test-service', image: `${IMAGE}:0.1.0`, state: 'running' }]
+    })
+    installManager(manager)
+    const { container } = makeContainer()
+
+    await container.start('1.0.0')
+
+    expect(manager.recreate).toHaveBeenCalledWith(
+      'test-service',
+      expect.objectContaining({ tag: '1.0.0' }),
+      undefined
+    )
+  })
+
+  it('prefers unprefixedName over a suffix-matching decoy, regardless of order', async () => {
+    // Decoy (suffix match, no unprefixedName) already at the desired image
+    // appears FIRST; the real container (unprefixedName) has a drifted image.
+    // Correct precedence recreates; picking the decoy would skip recreate.
+    const manager = makeManager({
+      containers: [
+        { name: 'other-test-service', image: `${IMAGE}:1.0.0`, state: 'running' },
+        {
+          name: 'devpod-test-service',
+          unprefixedName: 'test-service',
+          image: `${IMAGE}:0.1.0`,
+          state: 'running'
+        }
+      ]
+    })
+    installManager(manager)
+    const { container } = makeContainer()
+
+    await container.start('1.0.0')
+
+    expect(manager.recreate).toHaveBeenCalledWith(
+      'test-service',
+      expect.objectContaining({ tag: '1.0.0' }),
+      undefined
+    )
   })
 
   it('treats a failed self-heal probe as non-fatal and falls back to ensureRunning', async () => {
