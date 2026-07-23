@@ -13,7 +13,14 @@ import type {
   ContainerInfo as CanonicalContainerInfo,
   ContainerState as CanonicalContainerState,
   VolumeIssue as CanonicalVolumeIssue,
-  ContainerResourceLimits as CanonicalContainerResourceLimits
+  ContainerResourceLimits as CanonicalContainerResourceLimits,
+  UpdateRegistration as CanonicalUpdateRegistration,
+  UpdateCheckResult as CanonicalUpdateCheckResult,
+  UpdateReason as CanonicalUpdateReason,
+  TagKind as CanonicalTagKind,
+  VersionSource as CanonicalVersionSource,
+  VersionSourceResult as CanonicalVersionSourceResult,
+  UpdateServiceApi as CanonicalUpdateServiceApi
 } from 'signalk-container/types'
 import type {
   ConsumerManifest,
@@ -22,7 +29,14 @@ import type {
   ContainerInfo,
   ContainerState,
   VolumeIssue,
-  ContainerResourceLimits
+  ContainerResourceLimits,
+  UpdateRegistration,
+  UpdateCheckResult,
+  UpdateReason,
+  TagKind,
+  VersionSource,
+  VersionSourceResult,
+  UpdateServiceApi
 } from '../src/types.js'
 
 // Exact structural equality: resolves to `true` only when A and B are
@@ -62,4 +76,41 @@ export type _Volume = Assignable<CanonicalVolumeIssue, VolumeIssue>
 export type _Limits = Assignable<
   ContainerResourceLimits,
   CanonicalContainerResourceLimits
+>
+
+// --- Update-service types (signalk-container/types 1.23.1+). The value ---
+// --- data shapes are asserted byte-identical; the enums too.          ---
+export type _UpdateReason = Expect<Equals<UpdateReason, CanonicalUpdateReason>>
+export type _TagKind = Expect<Equals<TagKind, CanonicalTagKind>>
+export type _VersionSourceResult = Expect<
+  Equals<VersionSourceResult, CanonicalVersionSourceResult>
+>
+// VersionSource is directional, not equal: its `fetch(runtime)` parameter is
+// ContainerRuntimeInfo, which our mirror intentionally softens (the
+// deprecated `isPodmanDockerShim` is optional here, required upstream). A
+// consumer SUPPLIES a VersionSource and signalk-container CALLS it, so ours
+// must be assignable to the canonical one.
+export type _VersionSource = Assignable<VersionSource, CanonicalVersionSource>
+// UpdateRegistration flows INTO the service (register input): ours must be
+// assignable to canonical. UpdateCheckResult flows OUT (checkOne result):
+// canonical must be assignable to ours.
+export type _UpdateRegistration = Assignable<
+  UpdateRegistration,
+  CanonicalUpdateRegistration
+>
+export type _UpdateCheckResult = Assignable<
+  CanonicalUpdateCheckResult,
+  UpdateCheckResult
+>
+// UpdateServiceApi is NOT asserted equal on purpose: our mirror types
+// `sources.githubReleases(repo, { …, token })`, matching the real
+// implementation (GithubReleasesOptions accepts `token`), but signalk-
+// container's *interface* under-declares that option (it re-inlines a stale
+// `{ allowPrerelease?, tagPrefix? }` subset). So our type is a correct
+// superset. We assert the canonical service is USABLE through ours — a
+// consumer that only calls the declared surface still type-checks — rather
+// than force a false equality. See signalk-container updates/types.ts.
+export type _UpdateServiceApi = Assignable<
+  CanonicalUpdateServiceApi,
+  UpdateServiceApi
 >
