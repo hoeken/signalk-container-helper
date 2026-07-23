@@ -182,8 +182,12 @@ export interface ContainerInfo {
   name: string
   /**
    * `name` with the namespace prefix removed, e.g. "questdb" — the form
-   * consumer plugins pass to ensureRunning. Present in recent versions;
-   * fall back to stripping/matching the `sk-` prefix when absent.
+   * consumer plugins pass to ensureRunning. The namespace is "sk" only by
+   * default (configurable via SIGNALK_CONTAINER_NAMESPACE), so this is the
+   * only reliable key for matching a container by its unprefixed name.
+   * Present in every signalk-container that supports namespacing; when
+   * absent (a very old version), fall back to a namespace-agnostic
+   * name-suffix match rather than assuming an "sk-" prefix.
    */
   unprefixedName?: string
   image: string

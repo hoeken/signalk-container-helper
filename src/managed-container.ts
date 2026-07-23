@@ -168,12 +168,46 @@ export class ManagedContainer {
     return resolved
   }
 
-  /** Match this container in a listContainers() result. */
+  /**
+   * Match this container in a listContainers() result.
+   *
+   * `unprefixedName` (supplied by signalk-container since the configurable
+   * namespace landed) is the correct, namespace-agnostic key — a container
+   * is `<namespace>-<name>`, and the namespace is `sk` only by default
+   * (a devcontainer runs `devpod-`, and operators can set any value via
+   * SIGNALK_CONTAINER_NAMESPACE). We must NOT hard-code `sk-`, or the helper
+   * would fail to find its own container under a non-default namespace.
+   *
+   * The fallback covers only a signalk-container old enough to predate
+   * `unprefixedName`. signalk-container validates the namespace as
+   * `[a-z0-9]+` (no hyphen), so the fallback matches `<namespace>-<name>`
+   * with a hyphen-free prefix rather than any `-<name>` suffix — otherwise
+   * a foreign container like `otherns-app-<name>` would false-match.
+   */
   private matchInfo(list: ContainerInfo[]): ContainerInfo | undefined {
     const { name } = this.options
-    return list.find(
-      (c) => c.unprefixedName === name || c.name === `sk-${name}` || c.name === name
+    // Two passes so the reliable key wins regardless of list order: an
+    // exact unprefixedName match anywhere beats a legacy prefix match.
+    return (
+      list.find((c) => c.unprefixedName === name) ??
+      list.find(
+        (c) => c.unprefixedName === undefined && this.matchesLegacyName(c.name)
+      )
     )
+  }
+
+  /**
+   * True when `liveName` is this container under a legacy (pre-
+   * `unprefixedName`) signalk-container: either the bare name, or
+   * `<namespace>-<name>` where namespace is a single `[a-z0-9]+` token.
+   */
+  private matchesLegacyName(liveName: string): boolean {
+    const { name } = this.options
+    if (liveName === name) return true
+    const suffix = `-${name}`
+    if (!liveName.endsWith(suffix)) return false
+    const prefix = liveName.slice(0, -suffix.length)
+    return /^[a-z0-9]+$/.test(prefix)
   }
 
   /**
