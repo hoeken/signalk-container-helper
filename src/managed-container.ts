@@ -6,11 +6,11 @@ import type {
   ContainerState,
   EnsureRunningOptions,
   UpdateCheckResult
-} from './types'
-import { getContainerManager, waitForContainerManager } from './manager'
-import { buildVersionSource, type VersionSourceSpec } from './version-source'
-import { waitForHttpReady, type FetchLike } from './http'
-import { ContainerHelperError, errMsg, isValidImageTag } from './util'
+} from './types.js'
+import { getContainerManager, waitForContainerManager } from './manager.js'
+import { buildVersionSource, type VersionSourceSpec } from './version-source.js'
+import { waitForHttpReady, type FetchLike } from './http.js'
+import { ContainerHelperError, errMsg, isValidImageTag } from './util.js'
 
 export interface ReadinessOptions {
   /**

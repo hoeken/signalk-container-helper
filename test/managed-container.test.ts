@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ManagedContainer } from '../src/managed-container'
-import { ContainerHelperError } from '../src/util'
-import type { ContainerConfig } from '../src/types'
+import { ManagedContainer } from '../src/managed-container.js'
+import { ContainerHelperError } from '../src/util.js'
+import type { ContainerConfig } from '../src/types.js'
 import {
   clearManager,
   installManager,
   makeApp,
   makeManager,
   okFetch
-} from './fixtures'
+} from './fixtures.js'
 
 afterEach(() => {
   clearManager()

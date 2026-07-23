@@ -6,7 +6,7 @@ import type {
   ContainerRuntimeInfo,
   UpdateCheckResult,
   VersionSource
-} from '../src/types'
+} from '../src/types.js'
 
 export const RUNTIME: ContainerRuntimeInfo = {
   runtime: 'podman',

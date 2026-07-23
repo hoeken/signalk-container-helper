@@ -4,8 +4,8 @@ import {
   errMsg,
   isValidImageTag,
   startSafely
-} from '../src/util'
-import { makeApp } from './fixtures'
+} from '../src/util.js'
+import { makeApp } from './fixtures.js'
 
 describe('isValidImageTag', () => {
   it('accepts typical tags', () => {

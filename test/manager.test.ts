@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getContainerManager, waitForContainerManager } from '../src/manager'
-import { clearManager, installManager, makeManager, RUNTIME } from './fixtures'
+import { getContainerManager, waitForContainerManager } from '../src/manager.js'
+import { clearManager, installManager, makeManager, RUNTIME } from './fixtures.js'
 
 afterEach(() => {
   clearManager()

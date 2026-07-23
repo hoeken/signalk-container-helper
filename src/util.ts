@@ -1,4 +1,4 @@
-import type { AppLike } from './types'
+import type { AppLike } from './types.js'
 
 /**
  * Allowed characters for an image tag before it is passed anywhere near the
