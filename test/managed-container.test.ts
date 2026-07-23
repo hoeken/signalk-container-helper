@@ -193,6 +193,25 @@ describe('ManagedContainer.start', () => {
     )
   })
 
+  it('does not legacy-match a foreign container whose prefix contains a hyphen', async () => {
+    // signalk-container namespaces are [a-z0-9]+ (no hyphen), so
+    // `otherns-app-test-service` is some other plugin's container, not ours.
+    // A naive `-test-service` suffix match would wrongly recreate it.
+    const manager = makeManager({
+      containers: [
+        { name: 'otherns-app-test-service', image: `${IMAGE}:0.1.0`, state: 'running' }
+      ]
+    })
+    installManager(manager)
+    const { container } = makeContainer()
+
+    await container.start('1.0.0')
+
+    // No managed container found → no self-heal recreate; a clean start instead.
+    expect(manager.recreate).not.toHaveBeenCalled()
+    expect(manager.ensureRunning).toHaveBeenCalled()
+  })
+
   it('treats a failed self-heal probe as non-fatal and falls back to ensureRunning', async () => {
     const manager = makeManager()
     manager.listContainers = vi.fn(async () => {
