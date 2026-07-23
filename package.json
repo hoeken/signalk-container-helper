@@ -1,0 +1,38 @@
+{
+  "name": "signalk-container-helper",
+  "version": "0.1.0",
+  "description": "Helper library for Signal K plugins that manage containers via the signalk-container plugin",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "SPEC.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "signalk",
+    "signalk-container",
+    "signalk-plugin",
+    "docker",
+    "podman",
+    "container"
+  ],
+  "author": "hoeken",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}

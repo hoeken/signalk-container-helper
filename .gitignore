@@ -1,0 +1,11 @@
+.DS_Store
+
+# build output
+dist/
+node_modules/
+
+# reference checkouts (separate repositories, analyzed for the spec)
+mayara-server-signalk-plugin/
+signalk-backup/
+signalk-doctor/
+signalk-updater/
