@@ -74,7 +74,7 @@ near-identical copies):
 - **Marine-grade error handling**: helpers never throw for expected conditions without
   an actionable message; non-fatal operations are swallowed with `app.debug`; offline
   is a normal state.
-- Zero runtime dependencies. CommonJS output + `.d.ts`. Node ≥ 22.
+- Zero runtime dependencies. ESM output + `.d.ts`. Node ≥ 24.
 
 ## 3. Non-goals
 
@@ -255,12 +255,18 @@ type, forcing feature-detection at call sites:
 ## 6. Packaging & compatibility
 
 - npm module `signalk-container-helper`, Apache-2.0, zero runtime dependencies.
-- TypeScript → CommonJS (`dist/`) + declarations; `engines.node >= 22`.
+- TypeScript → **ESM** (`dist/`) + declarations; `engines.node >= 24`. The package is
+  `"type": "module"`; relative imports carry `.js` extensions (NodeNext resolution).
 - Consumers must NOT add signalk-container to `dependencies`/`peerDependencies`
   (its prereleases break npm semver ranges); declare it via `"signalk": { "requires":
   ["signalk-container"] }` in package.json. The README documents this.
-- Supported signalk-container baseline: **≥ 1.6.0** (for `whenReady`); newer features
-  degrade gracefully via feature detection.
+- Supported signalk-container **runtime** baseline: **≥ 1.6.0** (for `whenReady`);
+  newer features degrade gracefully via feature detection.
+- The library's own type mirror is validated at build time against
+  **signalk-container ≥ 1.23.1** (the `signalk-container/types` entrypoint, whose
+  update-service types 1.23.1 completed) via a `tsc`-checked contract test
+  (`test/types-contract.test-d.ts`), so drift from the canonical public API fails
+  CI. This is a dev-only devDependency; it imposes nothing on consumers.
 
 ## 7. Test plan
 

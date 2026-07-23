@@ -1,5 +1,5 @@
-import type { ContainerManagerApi, ContainerRuntimeInfo } from './types'
-import { sleep } from './util'
+import type { ContainerManagerApi, ContainerRuntimeInfo } from './types.js'
+import { sleep } from './util.js'
 
 /**
  * Read the cross-plugin manager global. signalk-container publishes its API

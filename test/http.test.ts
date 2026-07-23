@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { probeHttpHealth, waitForHttpReady } from '../src/http'
-import { flakyFetch, okFetch } from './fixtures'
+import { probeHttpHealth, waitForHttpReady } from '../src/http.js'
+import { flakyFetch, okFetch } from './fixtures.js'
 
 describe('waitForHttpReady', () => {
   it('resolves on first success', async () => {

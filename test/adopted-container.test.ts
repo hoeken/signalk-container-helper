@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AdoptedContainer } from '../src/adopted-container'
-import { clearManager, installManager, makeApp, makeManager } from './fixtures'
+import { AdoptedContainer } from '../src/adopted-container.js'
+import { clearManager, installManager, makeApp, makeManager } from './fixtures.js'
 
 afterEach(() => {
   clearManager()

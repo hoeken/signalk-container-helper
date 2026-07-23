@@ -1,4 +1,4 @@
-import type { UpdateServiceApi, VersionSource } from './types'
+import type { UpdateServiceApi, VersionSource } from './types.js'
 
 /**
  * Declarative version-source description, resolved against

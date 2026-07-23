@@ -1,7 +1,7 @@
-import type { AppLike, ContainerManagerApi, UpdateCheckResult } from './types'
-import { getContainerManager, waitForContainerManager } from './manager'
-import { buildVersionSource, type VersionSourceSpec } from './version-source'
-import { errMsg } from './util'
+import type { AppLike, ContainerManagerApi, UpdateCheckResult } from './types.js'
+import { getContainerManager, waitForContainerManager } from './manager.js'
+import { buildVersionSource, type VersionSourceSpec } from './version-source.js'
+import { errMsg } from './util.js'
 
 export interface AdoptedContainerOptions {
   app: AppLike

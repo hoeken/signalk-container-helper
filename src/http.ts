@@ -1,4 +1,4 @@
-import { errMsg, sleep } from './util'
+import { errMsg, sleep } from './util.js'
 
 /** Injectable fetch for tests; matches the global fetch signature loosely. */
 export type FetchLike = (
