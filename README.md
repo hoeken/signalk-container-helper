@@ -174,7 +174,9 @@ const adopted = new AdoptedContainer({
 
 // in start():
 startSafely(app, async () => {
-  await adopted.register(); // false + setPluginError when unavailable; never throws
+  // false + setPluginError when unavailable; never throws. Stop here so we
+  // don't overwrite that error with a health status below.
+  if (!(await adopted.register())) return;
 
   const probe = await probeHttpHealth(`${ENGINE_URL}/api/health`);
   if (!probe.reachable) {
