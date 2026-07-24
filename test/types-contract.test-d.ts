@@ -102,14 +102,17 @@ export type _UpdateCheckResult = Assignable<
   CanonicalUpdateCheckResult,
   UpdateCheckResult
 >
-// UpdateServiceApi is NOT asserted equal on purpose: our mirror types
-// `sources.githubReleases(repo, { …, token })`, matching the real
-// implementation (GithubReleasesOptions accepts `token`), but signalk-
-// container's *interface* under-declares that option (it re-inlines a stale
-// `{ allowPrerelease?, tagPrefix? }` subset). So our type is a correct
-// superset. We assert the canonical service is USABLE through ours — a
-// consumer that only calls the declared surface still type-checks — rather
-// than force a false equality. See signalk-container updates/types.ts.
+// UpdateServiceApi is asserted directionally, not equal, because it embeds
+// ContainerRuntimeInfo — via `sources.*(): VersionSource` whose
+// `fetch(runtime)` parameter is ContainerRuntimeInfo, and via
+// `register(reg: UpdateRegistration)` whose versionSource does the same. Our
+// mirror intentionally softens ContainerRuntimeInfo (the deprecated
+// `isPodmanDockerShim` is optional here, required upstream; upstream's
+// deprecated `remoteSocketUrl` is omitted here), so exact equality can never
+// hold and shouldn't be forced. We assert the canonical service is USABLE
+// through ours instead — a consumer calling the declared surface type-checks.
+// (The `token` option gap that once also blocked equality was fixed in
+// signalk-container 1.23.2.)
 export type _UpdateServiceApi = Assignable<
   CanonicalUpdateServiceApi,
   UpdateServiceApi

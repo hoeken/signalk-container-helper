@@ -36,10 +36,10 @@ Requires **Node ≥ 24**. This library is published as an **ES module** (`import
 
 At **runtime** it works with signalk-container ≥ 1.6.0 — newer manager features
 (`recreate`, `getLogs`, …) are feature-detected with graceful fallbacks. Its
-**type contract** is validated against **signalk-container ≥ 1.23.1** (1.23.0
-first published the `signalk-container/types` entrypoint; 1.23.1 completed it
-with the update-service types); this is a dev-only check and imposes no
-dependency on your plugin.
+**type contract** is validated against **signalk-container ≥ 1.23.2** (1.23.0
+first published the `signalk-container/types` entrypoint; 1.23.1 added the
+update-service types; 1.23.2 completed their option types); this is a dev-only
+check and imposes no dependency on your plugin.
 
 ## Quick start: a managed container
 
@@ -200,7 +200,7 @@ so the manager can't see them — and "running" isn't "healthy" anyway.
 | `isValidImageTag(tag)` | Tag guard (`IMAGE_TAG_PATTERN`) |
 | `errMsg(err)` | Normalize unknown errors to strings |
 | `ContainerHelperError` | Typed error with `code` and `reported` |
-| Types | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.1) so it never silently drifts. Feature-detected members stay optional here. |
+| Types | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
 
 ### Error codes
 

@@ -263,8 +263,8 @@ type, forcing feature-detection at call sites:
 - Supported signalk-container **runtime** baseline: **≥ 1.6.0** (for `whenReady`);
   newer features degrade gracefully via feature detection.
 - The library's own type mirror is validated at build time against
-  **signalk-container ≥ 1.23.1** (the `signalk-container/types` entrypoint, whose
-  update-service types 1.23.1 completed) via a `tsc`-checked contract test
+  **signalk-container ≥ 1.23.2** (the `signalk-container/types` entrypoint, whose
+  update-service types and their options 1.23.1–1.23.2 completed) via a `tsc`-checked contract test
   (`test/types-contract.test-d.ts`), so drift from the canonical public API fails
   CI. This is a dev-only devDependency; it imposes nothing on consumers.
 
