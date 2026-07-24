@@ -1,36 +1,43 @@
-import type { AppLike, ContainerManagerApi, UpdateCheckResult } from './types.js'
-import { getContainerManager, waitForContainerManager } from './manager.js'
-import { buildVersionSource, type VersionSourceSpec } from './version-source.js'
-import { errMsg } from './util.js'
+import type {
+  AppLike,
+  ContainerManagerApi,
+  UpdateCheckResult,
+} from "./types.js";
+import { getContainerManager, waitForContainerManager } from "./manager.js";
+import {
+  buildVersionSource,
+  type VersionSourceSpec,
+} from "./version-source.js";
+import { errMsg } from "./util.js";
 
 export interface AdoptedContainerOptions {
-  app: AppLike
+  app: AppLike;
   /** Your plugin id — update-service registration key. */
-  pluginId: string
+  pluginId: string;
   /**
    * The container's name for display/registration. Adopted containers are
    * usually NOT namespace-prefixed (systemd/Quadlet-managed peers), so
    * manager.getState() cannot see them — probe their HTTP health directly
    * (see probeHttpHealth) instead.
    */
-  containerName: string
+  containerName: string;
   /** Image repo without tag. */
-  image: string
+  image: string;
   /** The tag the deployment pins (e.g. "latest"); string or live getter. */
-  currentTag: string | (() => string)
+  currentTag: string | (() => string);
   /**
    * Ask the running app for its honest version (e.g. GET /api/health
    * .version). Preferred over currentTag by the update comparator —
    * essential when currentTag is floating.
    */
-  currentVersion?: () => Promise<string | null>
-  versionSource: VersionSourceSpec
+  currentVersion?: () => Promise<string | null>;
+  versionSource: VersionSourceSpec;
   /** e.g. "24h" (default), "1h" minimum. */
-  checkInterval?: string
+  checkInterval?: string;
   /** Budget for waiting on signalk-container + runtime. Default 30_000. */
-  managerTimeoutMs?: number
+  managerTimeoutMs?: number;
   /** Poll interval while waiting for the manager global. Default 500. */
-  managerPollIntervalMs?: number
+  managerPollIntervalMs?: number;
 }
 
 /**
@@ -40,13 +47,13 @@ export interface AdoptedContainerOptions {
  * update-detection service and probes its health over HTTP.
  */
 export class AdoptedContainer {
-  readonly options: AdoptedContainerOptions
-  manager: ContainerManagerApi | undefined
+  readonly options: AdoptedContainerOptions;
+  manager: ContainerManagerApi | undefined;
 
-  private registered = false
+  private registered = false;
 
   constructor(options: AdoptedContainerOptions) {
-    this.options = options
+    this.options = options;
   }
 
   /**
@@ -66,60 +73,63 @@ export class AdoptedContainer {
       versionSource,
       checkInterval,
       managerTimeoutMs = 30_000,
-      managerPollIntervalMs = 500
-    } = this.options
+      managerPollIntervalMs = 500,
+    } = this.options;
 
     const { manager, runtime } = await waitForContainerManager({
       timeoutMs: managerTimeoutMs,
-      intervalMs: managerPollIntervalMs
-    })
+      intervalMs: managerPollIntervalMs,
+    });
     if (!manager) {
       app.setPluginError(
-        'signalk-container is not loaded — install it and restart the server. Update detection is disabled without it.'
-      )
-      return false
+        "signalk-container is not loaded — install it and restart the server. Update detection is disabled without it.",
+      );
+      return false;
     }
     if (!runtime) {
       app.setPluginError(
-        'No container runtime detected (Podman or Docker) — update detection is disabled.'
-      )
-      return false
+        "No container runtime detected (Podman or Docker) — update detection is disabled.",
+      );
+      return false;
     }
-    this.manager = manager
+    this.manager = manager;
 
     try {
       manager.updates.register({
         pluginId,
         containerName,
         image,
-        currentTag: typeof currentTag === 'function' ? currentTag : () => currentTag,
+        currentTag:
+          typeof currentTag === "function" ? currentTag : () => currentTag,
         currentVersion,
         checkInterval,
-        versionSource: buildVersionSource(manager.updates, versionSource)
-      })
-      this.registered = true
-      return true
+        versionSource: buildVersionSource(manager.updates, versionSource),
+      });
+      this.registered = true;
+      return true;
     } catch (err) {
-      app.setPluginError(`update registration failed: ${errMsg(err)}`)
-      return false
+      app.setPluginError(`update registration failed: ${errMsg(err)}`);
+      return false;
     }
   }
 
   /** Best-effort deregistration for plugin.stop(). Never throws. */
   unregister(): void {
-    if (!this.registered) return
+    if (!this.registered) return;
     try {
-      ;(this.manager ?? getContainerManager())?.updates.unregister(this.options.pluginId)
+      (this.manager ?? getContainerManager())?.updates.unregister(
+        this.options.pluginId,
+      );
     } catch (err) {
-      this.options.app.debug(`updates.unregister failed: ${errMsg(err)}`)
+      this.options.app.debug(`updates.unregister failed: ${errMsg(err)}`);
     }
-    this.registered = false
+    this.registered = false;
   }
 
   /** updates.checkOne — null when the manager is unavailable. */
   async checkForUpdate(): Promise<UpdateCheckResult | null> {
-    const manager = this.manager ?? getContainerManager()
-    if (!manager) return null
-    return manager.updates.checkOne(this.options.pluginId)
+    const manager = this.manager ?? getContainerManager();
+    if (!manager) return null;
+    return manager.updates.checkOne(this.options.pluginId);
   }
 }

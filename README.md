@@ -47,53 +47,58 @@ For plugins that own their container's lifecycle (the `signalk-backup` /
 `mayara` archetype):
 
 ```ts
-import { ManagedContainer, startSafely } from 'signalk-container-helper'
+import { ManagedContainer, startSafely } from "signalk-container-helper";
 
 export default function plugin(app) {
-  let container: ManagedContainer | null = null
-  let settings = null
+  let container: ManagedContainer | null = null;
+  let settings = null;
 
   const plugin = {
-    id: 'signalk-myservice',
-    name: 'My Service',
+    id: "signalk-myservice",
+    name: "My Service",
 
     // Signal K does NOT await start() — keep it synchronous and let
     // startSafely catch and report async failures.
     start(rawConfig) {
-      settings = { ...SCHEMA_DEFAULTS, ...rawConfig } // SK doesn't seed defaults
+      settings = { ...SCHEMA_DEFAULTS, ...rawConfig }; // SK doesn't seed defaults
 
       container = new ManagedContainer({
         app,
-        pluginId: 'signalk-myservice',
-        name: 'myservice',                       // unprefixed; runtime name is sk-myservice
-        image: 'ghcr.io/example/myservice',
-        defaultTag: 'latest',
+        pluginId: "signalk-myservice",
+        name: "myservice", // unprefixed; runtime name is sk-myservice
+        image: "ghcr.io/example/myservice",
+        defaultTag: "latest",
         buildConfig: (tag) => ({
-          image: 'ghcr.io/example/myservice',
+          image: "ghcr.io/example/myservice",
           tag,
-          signalkAccessiblePorts: [9000],        // let signalk-container wire networking
-          signalkDataMount: '/data',             // plugin data dir, deployment-agnostic
-          env: { LOG_LEVEL: 'info' },
-          restart: 'unless-stopped',
-          resources: { cpus: 1, memory: '512m', memorySwap: '512m', pidsLimit: 100 }
+          signalkAccessiblePorts: [9000], // let signalk-container wire networking
+          signalkDataMount: "/data", // plugin data dir, deployment-agnostic
+          env: { LOG_LEVEL: "info" },
+          restart: "unless-stopped",
+          resources: {
+            cpus: 1,
+            memory: "512m",
+            memorySwap: "512m",
+            pidsLimit: 100,
+          },
         }),
-        readiness: { port: 9000, path: '/api/health' },
+        readiness: { port: 9000, path: "/api/health" },
         updates: {
-          versionSource: { githubReleases: 'example/myservice' },
-          currentTag: () => settings?.imageTag ?? 'latest'
-        }
-      })
+          versionSource: { githubReleases: "example/myservice" },
+          currentTag: () => settings?.imageTag ?? "latest",
+        },
+      });
 
       startSafely(app, async () => {
-        const { address } = await container.start(settings.imageTag)
+        const { address } = await container.start(settings.imageTag);
         // address = "http://127.0.0.1:9000" — the app answered /api/health
-        app.setPluginStatus('Running')
-      })
+        app.setPluginStatus("Running");
+      });
     },
 
     async stop() {
-      await container?.stop()   // unregister updates + stop (not remove); never throws
-      app.setPluginStatus('Stopped')
+      await container?.stop(); // unregister updates + stop (not remove); never throws
+      app.setPluginStatus("Stopped");
     },
 
     registerWithRouter(router) {
@@ -102,15 +107,15 @@ export default function plugin(app) {
       container?.registerUpdateRoutes(router, {
         onApplied: (requestedTag) => {
           // persist the REQUESTED tag (e.g. "auto") so auto-tracking survives
-          settings.imageTag = requestedTag
-          app.savePluginOptions(settings, () => undefined)
-        }
-      })
+          settings.imageTag = requestedTag;
+          app.savePluginOptions(settings, () => undefined);
+        },
+      });
     },
 
-    schema: () => SCHEMA
-  }
-  return plugin
+    schema: () => SCHEMA,
+  };
+  return plugin;
 }
 ```
 
@@ -134,7 +139,7 @@ What `start()` does for you, in order:
 7. **Waits for HTTP readiness** — "container running" ≠ "app ready".
 
 Progress is reported through `app.setPluginStatus`; the final "Running" message is
-yours to set. Fatal failures throw a typed `ContainerHelperError` *after* reporting
+yours to set. Fatal failures throw a typed `ContainerHelperError` _after_ reporting
 via `app.setPluginError` — `startSafely` knows not to double-report.
 
 ## Quick start: an adopted container
@@ -144,41 +149,52 @@ the `signalk-doctor` / `signalk-updater` archetype. Register it for update
 notifications and probe its health over HTTP, but never touch its lifecycle:
 
 ```ts
-import { AdoptedContainer, probeHttpHealth, startSafely } from 'signalk-container-helper'
+import {
+  AdoptedContainer,
+  probeHttpHealth,
+  startSafely,
+} from "signalk-container-helper";
 
-const ENGINE_URL = 'http://127.0.0.1:3004'
+const ENGINE_URL = "http://127.0.0.1:3004";
 
 const adopted = new AdoptedContainer({
   app,
-  pluginId: 'signalk-mytool',
-  containerName: 'mytool-server',
-  image: 'ghcr.io/example/mytool-server',
-  currentTag: 'latest',                    // what the deployment pins (OperatorIntent)
-  currentVersion: async () => {            // the app's honest version (RuntimeIdentity)
-    const res = await fetch(`${ENGINE_URL}/api/health`)
-    return ((await res.json()) as { version?: string }).version ?? null
+  pluginId: "signalk-mytool",
+  containerName: "mytool-server",
+  image: "ghcr.io/example/mytool-server",
+  currentTag: "latest", // what the deployment pins (OperatorIntent)
+  currentVersion: async () => {
+    // the app's honest version (RuntimeIdentity)
+    const res = await fetch(`${ENGINE_URL}/api/health`);
+    return ((await res.json()) as { version?: string }).version ?? null;
   },
-  versionSource: { githubReleases: 'example/mytool-server' },  // LatestAvailable
-  checkInterval: '24h'
-})
+  versionSource: { githubReleases: "example/mytool-server" }, // LatestAvailable
+  checkInterval: "24h",
+});
 
 // in start():
 startSafely(app, async () => {
-  await adopted.register()   // false + setPluginError when unavailable; never throws
+  // false + setPluginError when unavailable; never throws. Stop here so we
+  // don't overwrite that error with a health status below.
+  if (!(await adopted.register())) return;
 
-  const probe = await probeHttpHealth(`${ENGINE_URL}/api/health`)
+  const probe = await probeHttpHealth(`${ENGINE_URL}/api/health`);
   if (!probe.reachable) {
-    app.setPluginError('mytool-server is not reachable — is its service running?')
+    app.setPluginError(
+      "mytool-server is not reachable — is its service running?",
+    );
   } else if (probe.slowMs) {
     // Signal K has no warning tier — report slow-but-healthy as a status
-    app.setPluginStatus(`Reachable but slow (${probe.slowMs}ms) — likely disk I/O contention`)
+    app.setPluginStatus(
+      `Reachable but slow (${probe.slowMs}ms) — likely disk I/O contention`,
+    );
   } else {
-    app.setPluginStatus('Running')
+    app.setPluginStatus("Running");
   }
-})
+});
 
 // in stop():
-adopted.unregister()
+adopted.unregister();
 ```
 
 Why not `manager.getState()` for health? signalk-container namespace-prefixes the
@@ -187,33 +203,33 @@ so the manager can't see them — and "running" isn't "healthy" anyway.
 
 ## API overview
 
-| Export | Purpose |
-|---|---|
-| `ManagedContainer` | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes` |
-| `AdoptedContainer` | Update registration + checks for externally-managed containers |
-| `getContainerManager()` | Read the `globalThis.__signalk_containerManager` global |
-| `waitForContainerManager(opts)` | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages |
-| `waitForHttpReady(url, opts)` | Poll until 2xx or deadline (throws) |
-| `probeHttpHealth(url, opts)` | Retrying liveness probe with slow-response detection (never throws) |
-| `fetchWithTimeout(url, opts)` | `fetch` with an `AbortController` timeout |
-| `startSafely(app, fn)` | Sync wrapper for async plugin startup — Signal K does not await `start()` |
-| `isValidImageTag(tag)` | Tag guard (`IMAGE_TAG_PATTERN`) |
-| `errMsg(err)` | Normalize unknown errors to strings |
-| `ContainerHelperError` | Typed error with `code` and `reported` |
-| Types | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
+| Export                          | Purpose                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ManagedContainer`              | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes`                                                                                                                                             |
+| `AdoptedContainer`              | Update registration + checks for externally-managed containers                                                                                                                                                                                                                           |
+| `getContainerManager()`         | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
+| `waitForContainerManager(opts)` | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
+| `waitForHttpReady(url, opts)`   | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
+| `probeHttpHealth(url, opts)`    | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
+| `fetchWithTimeout(url, opts)`   | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
+| `startSafely(app, fn)`          | Sync wrapper for async plugin startup — Signal K does not await `start()`                                                                                                                                                                                                                |
+| `isValidImageTag(tag)`          | Tag guard (`IMAGE_TAG_PATTERN`)                                                                                                                                                                                                                                                          |
+| `errMsg(err)`                   | Normalize unknown errors to strings                                                                                                                                                                                                                                                      |
+| `ContainerHelperError`          | Typed error with `code` and `reported`                                                                                                                                                                                                                                                   |
+| Types                           | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
 
 ### Error codes
 
 `ContainerHelperError.code` values thrown by `start()` / `applyUpdate()`:
 
-| Code | Meaning |
-|---|---|
-| `manager-unavailable` | signalk-container never published its API within the budget |
-| `no-runtime` | Manager present, but no podman/docker was detected |
-| `invalid-tag` | Tag failed the `IMAGE_TAG_PATTERN` guard |
-| `address-unresolved` | No host:port could be found for the readiness port |
-| `not-ready` | The app never answered its health URL before the deadline |
-| `recreate-limbo` | Legacy update path removed the container but recreation failed — retry applies |
+| Code                  | Meaning                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `manager-unavailable` | signalk-container never published its API within the budget                    |
+| `no-runtime`          | Manager present, but no podman/docker was detected                             |
+| `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                       |
+| `address-unresolved`  | No host:port could be found for the readiness port                             |
+| `not-ready`           | The app never answered its health URL before the deadline                      |
+| `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies |
 
 All errors thrown by the helpers have already been surfaced through
 `app.setPluginError` (`reported: true`), so `startSafely` won't report them twice.
@@ -222,13 +238,13 @@ All errors thrown by the helpers have already been surfaced through
 
 The helpers feature-detect newer signalk-container capabilities:
 
-| Capability | Floor | Fallback behavior |
-|---|---|---|
-| `whenReady()` | 1.6.0 | polls `getRuntime()` |
-| `getLogs()` | 1.7.0 | `getLogs()` returns `null` |
-| `recreate()` | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
-| `ContainerConfig.healthcheck` | 1.14.0 | ignored by older versions |
-| `ContainerConfig.ulimits` | 1.17.0 | ignored by older versions |
+| Capability                    | Floor  | Fallback behavior                                            |
+| ----------------------------- | ------ | ------------------------------------------------------------ |
+| `whenReady()`                 | 1.6.0  | polls `getRuntime()`                                         |
+| `getLogs()`                   | 1.7.0  | `getLogs()` returns `null`                                   |
+| `recreate()`                  | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
+| `ContainerConfig.healthcheck` | 1.14.0 | ignored by older versions                                    |
+| `ContainerConfig.ulimits`     | 1.17.0 | ignored by older versions                                    |
 
 ## Design rules inherited from the reference plugins
 
@@ -240,16 +256,32 @@ The helpers feature-detect newer signalk-container capabilities:
 - **Offline is normal.** Boats at sea lose connectivity; nothing here converts a
   network failure into a fatal error.
 - **The user owns updates.** Update detection notifies; applying is an explicit
-  action (`applyUpdate` / the POST route). Persist the *requested* tag (e.g.
+  action (`applyUpdate` / the POST route). Persist the _requested_ tag (e.g.
   `"auto"`), not the resolved version, so auto-tracking survives restarts.
 
 ## Development
 
 ```bash
 npm install
-npm test          # vitest (65 tests, fully mocked — no containers needed)
+npm test          # typecheck the type contract, then vitest (fully mocked — no containers needed)
 npm run build     # tsc → dist/
+npm run format    # prettier --write + eslint --fix
+npm run ci-lint   # eslint + prettier --check (what CI runs)
 ```
+
+CI (`.github/workflows/ci.yml`) runs `ci-lint`, `build`, and `test` on every push and pull request.
+
+## Releasing
+
+This library is distributed through **npm with semver** — consumers `npm install signalk-container-helper` and pin a range (`^1.0.0`); they never build against `master`. `master` is the development trunk and may be mid-change without affecting anyone.
+
+Releases are tag-triggered (`.github/workflows/publish.yml` fires on `v*` tags):
+
+1. Bump `version` in `package.json`, commit, and merge to `master`.
+2. Tag `vX.Y.Z` and push the tag.
+3. The workflow builds, tests, creates a GitHub Release (auto-generated notes), and runs `npm publish --provenance` (prereleases `-beta.`/`-rc.` publish under the `beta` dist-tag).
+
+Publishing requires an `NPM_TOKEN` repository secret with publish rights to the package.
 
 ## License
 

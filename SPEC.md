@@ -13,12 +13,12 @@ Four plugins were analyzed: `mayara-server-signalk-plugin`, `signalk-backup`,
 
 They fall into **two archetypes**:
 
-| | Managed (backup, mayara) | Adopt-only (doctor, updater) |
-|---|---|---|
+|                     | Managed (backup, mayara)                                  | Adopt-only (doctor, updater)                             |
+| ------------------- | --------------------------------------------------------- | -------------------------------------------------------- |
 | Container lifecycle | Owned by the plugin via `ensureRunning`/`recreate`/`stop` | Owned externally (systemd Quadlet); plugin never mutates |
-| Update service | `register` + `checkOne` + apply route | `register`/`unregister` only |
-| Health | HTTP-poll the containerized app | HTTP-probe with retry + slow detection |
-| Manager wait budget | 30–120 s | 30 s |
+| Update service      | `register` + `checkOne` + apply route                     | `register`/`unregister` only                             |
+| Health              | HTTP-poll the containerized app                           | HTTP-probe with retry + slow detection                   |
+| Manager wait budget | 30–120 s                                                  | 30 s                                                     |
 
 Every plugin independently re-implements the same building blocks (all four have
 near-identical copies):
@@ -43,8 +43,8 @@ near-identical copies):
    failed" limbo error message. Requested tag persisted via `savePluginOptions`
    (persisting `'auto'`, not the resolved version).
 7. **Update registration** — `updates.register({pluginId, containerName, image,
-   currentTag: () => …, versionSource: sources.githubReleases(repo), currentVersion?,
-   checkInterval?})` at start; `unregister` at stop; both wrapped non-fatally.
+currentTag: () => …, versionSource: sources.githubReleases(repo), currentVersion?,
+checkInterval?})` at start; `unregister` at stop; both wrapped non-fatally.
 8. **Address resolution** — `resolveContainerAddress(name, port)` with a documented
    production bug workaround: fall back to parsing `listContainers()[].ports` for a
    `"host:port->port/tcp"` entry, because the resolver can return a stale port.
@@ -55,7 +55,7 @@ near-identical copies):
 11. **Teardown** — `updates.unregister` then `containers.stop` (stop, never remove — the
     container restarts instantly on re-enable), everything swallowed.
 12. **Never throw out of `start()`** — sync `start()` + `asyncStart().catch(err =>
-    setPluginError(...))`, because the server does not await plugin `start()`.
+setPluginError(...))`, because the server does not await plugin `start()`.
 13. **Schema defaults merge** — `{...SCHEMA_DEFAULTS, ...rawConfig}` because Signal K
     does not seed schema defaults at runtime.
 
@@ -90,17 +90,25 @@ near-identical copies):
 ```ts
 import {
   // discovery
-  getContainerManager, waitForContainerManager,
+  getContainerManager,
+  waitForContainerManager,
   // archetypes
-  ManagedContainer, AdoptedContainer,
+  ManagedContainer,
+  AdoptedContainer,
   // http utilities
-  fetchWithTimeout, waitForHttpReady, probeHttpHealth,
+  fetchWithTimeout,
+  waitForHttpReady,
+  probeHttpHealth,
   // misc utilities
-  startSafely, errMsg, isValidImageTag, IMAGE_TAG_PATTERN,
+  startSafely,
+  errMsg,
+  isValidImageTag,
+  IMAGE_TAG_PATTERN,
   ContainerHelperError,
   // full type mirror
-  type ContainerManagerApi, type ContainerConfig, /* … */
-} from 'signalk-container-helper'
+  type ContainerManagerApi,
+  type ContainerConfig /* … */,
+} from "signalk-container-helper";
 ```
 
 ### 4.1 Discovery
@@ -153,6 +161,7 @@ container.registerUpdateRoutes(router, { onApplied })  // GET check / POST apply
 ```
 
 `start()` sequencing (each step from the reference plugins):
+
 1. `waitForContainerManager` — on failure sets an actionable `setPluginError` and throws
    `ContainerHelperError` with `code: 'manager-unavailable' | 'no-runtime'` and
    `reported: true` (so `startSafely` doesn't double-report).
@@ -174,19 +183,20 @@ The helper emits progress via `setPluginStatus` ("Waiting for…", "Starting…"
 
 ```ts
 const adopted = new AdoptedContainer({
-  app, pluginId: 'signalk-doctor',
-  containerName: 'signalk-doctor-server',
-  image: 'ghcr.io/dirkwa/signalk-doctor-server',
-  currentTag: 'latest',                       // string or () => string
+  app,
+  pluginId: "signalk-doctor",
+  containerName: "signalk-doctor-server",
+  image: "ghcr.io/dirkwa/signalk-doctor-server",
+  currentTag: "latest", // string or () => string
   currentVersion: () => fetchEngineVersion(), // optional, preferred by comparator
-  versionSource: { githubReleases: 'dirkwa/signalk-doctor-server' },
-  checkInterval: '24h',
+  versionSource: { githubReleases: "dirkwa/signalk-doctor-server" },
+  checkInterval: "24h",
   managerTimeoutMs: 30_000,
-})
+});
 
-await adopted.register()    // waits for manager; false + setPluginError if unavailable
-adopted.unregister()        // best-effort, never throws
-await adopted.checkForUpdate()
+await adopted.register(); // waits for manager; false + setPluginError if unavailable
+adopted.unregister(); // best-effort, never throws
+await adopted.checkForUpdate();
 ```
 
 No lifecycle mutation, matching the "adopt, don't manage" rule.
@@ -194,11 +204,19 @@ No lifecycle mutation, matching the "adopt, don't manage" rule.
 ### 4.4 HTTP utilities
 
 ```ts
-fetchWithTimeout(url, { timeoutMs = 10_000, fetchImpl = fetch, ...init })
-waitForHttpReady(url, { maxMs = 60_000, intervalMs = 1_000, requestTimeoutMs = 2_000 })
-probeHttpHealth(url, { attempts = 3, attemptTimeoutMs = 5_000,
-                       retryDelayMs = 2_000, slowMs = 1_500 })
-  // → { reachable: boolean, slowMs?: number } — never throws
+fetchWithTimeout(url, { timeoutMs = 10_000, fetchImpl = fetch, ...init });
+waitForHttpReady(url, {
+  maxMs = 60_000,
+  intervalMs = 1_000,
+  requestTimeoutMs = 2_000,
+});
+probeHttpHealth(url, {
+  attempts = 3,
+  attemptTimeoutMs = 5_000,
+  retryDelayMs = 2_000,
+  slowMs = 1_500,
+});
+// → { reachable: boolean, slowMs?: number } — never throws
 ```
 
 Defaults are the constants shared across the four plugins. `fetchImpl` is injectable
@@ -207,16 +225,21 @@ for tests.
 ### 4.5 Misc
 
 ```ts
-startSafely(app, () => asyncStart(config))
-  // sync wrapper for plugin.start(): catches, reports via setPluginError unless the
-  // error is a ContainerHelperError already reported by the helper
+startSafely(app, () => asyncStart(config));
+// sync wrapper for plugin.start(): catches, reports via setPluginError unless the
+// error is a ContainerHelperError already reported by the helper
 
-errMsg(err)               // unknown → string
-isValidImageTag(tag)      // SAFE_TAG check
+errMsg(err); // unknown → string
+isValidImageTag(tag); // SAFE_TAG check
 class ContainerHelperError extends Error {
-  code: 'manager-unavailable' | 'no-runtime' | 'invalid-tag'
-      | 'address-unresolved' | 'not-ready' | 'recreate-limbo'
-  reported: boolean       // true when the helper already called setPluginError
+  code:
+    | "manager-unavailable"
+    | "no-runtime"
+    | "invalid-tag"
+    | "address-unresolved"
+    | "not-ready"
+    | "recreate-limbo";
+  reported: boolean; // true when the helper already called setPluginError
 }
 ```
 
@@ -231,15 +254,15 @@ A documented mirror of signalk-container's public surface, synced against **v1.2
 `globalThis` declaration. Methods newer than the **1.6.0 baseline** are optional in the
 type, forcing feature-detection at call sites:
 
-| Optional member | Version floor |
-|---|---|
-| `getLogs` | 1.7.0 |
-| `resolveHostPath` | 1.7.0 (partial earlier) |
-| `doctor.*` | 1.8.0–1.10.0 |
-| `recreate` | 1.12.0 |
-| `execInContainer`, network methods | varies |
-| `removeManagedData` | 1.18.0 |
-| `manifest.*` | 1.13.0+ |
+| Optional member                         | Version floor                               |
+| --------------------------------------- | ------------------------------------------- |
+| `getLogs`                               | 1.7.0                                       |
+| `resolveHostPath`                       | 1.7.0 (partial earlier)                     |
+| `doctor.*`                              | 1.8.0–1.10.0                                |
+| `recreate`                              | 1.12.0                                      |
+| `execInContainer`, network methods      | varies                                      |
+| `removeManagedData`                     | 1.18.0                                      |
+| `manifest.*`                            | 1.13.0+                                     |
 | Config fields `healthcheck` / `ulimits` | 1.14.0 / 1.17.0 (ignored by older versions) |
 
 ## 5. Error-handling philosophy
@@ -259,7 +282,7 @@ type, forcing feature-detection at call sites:
   `"type": "module"`; relative imports carry `.js` extensions (NodeNext resolution).
 - Consumers must NOT add signalk-container to `dependencies`/`peerDependencies`
   (its prereleases break npm semver ranges); declare it via `"signalk": { "requires":
-  ["signalk-container"] }` in package.json. The README documents this.
+["signalk-container"] }` in package.json. The README documents this.
 - Supported signalk-container **runtime** baseline: **≥ 1.6.0** (for `whenReady`);
   newer features degrade gracefully via feature detection.
 - The library's own type mirror is validated at build time against

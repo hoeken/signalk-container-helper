@@ -1,31 +1,36 @@
-import type { AppLike } from './types.js'
+import type { AppLike } from "./types.js";
 
 /**
  * Allowed characters for an image tag before it is passed anywhere near the
  * container runtime. Same guard as the reference plugins (SAFE_TAG).
  */
-export const IMAGE_TAG_PATTERN = /^[a-zA-Z0-9._-]+$/
+export const IMAGE_TAG_PATTERN = /^[a-zA-Z0-9._-]+$/;
 
 export function isValidImageTag(tag: unknown): tag is string {
-  return typeof tag === 'string' && tag.length > 0 && tag.length <= 128 && IMAGE_TAG_PATTERN.test(tag)
+  return (
+    typeof tag === "string" &&
+    tag.length > 0 &&
+    tag.length <= 128 &&
+    IMAGE_TAG_PATTERN.test(tag)
+  );
 }
 
 /** Normalize an unknown thrown value into a printable message. */
 export function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return err instanceof Error ? err.message : String(err);
 }
 
 export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export type ContainerHelperErrorCode =
-  | 'manager-unavailable'
-  | 'no-runtime'
-  | 'invalid-tag'
-  | 'address-unresolved'
-  | 'not-ready'
-  | 'recreate-limbo'
+  | "manager-unavailable"
+  | "no-runtime"
+  | "invalid-tag"
+  | "address-unresolved"
+  | "not-ready"
+  | "recreate-limbo";
 
 /**
  * Typed error thrown by ManagedContainer/AdoptedContainer operations.
@@ -33,14 +38,18 @@ export type ContainerHelperErrorCode =
  * `app.setPluginError` — `startSafely` uses it to avoid double-reporting.
  */
 export class ContainerHelperError extends Error {
-  readonly code: ContainerHelperErrorCode
-  reported: boolean
+  readonly code: ContainerHelperErrorCode;
+  reported: boolean;
 
-  constructor(code: ContainerHelperErrorCode, message: string, reported = false) {
-    super(message)
-    this.name = 'ContainerHelperError'
-    this.code = code
-    this.reported = reported
+  constructor(
+    code: ContainerHelperErrorCode,
+    message: string,
+    reported = false,
+  ) {
+    super(message);
+    this.name = "ContainerHelperError";
+    this.code = code;
+    this.reported = reported;
   }
 }
 
@@ -60,9 +69,9 @@ export class ContainerHelperError extends Error {
 export function startSafely(app: AppLike, fn: () => Promise<unknown>): void {
   fn().catch((err: unknown) => {
     if (err instanceof ContainerHelperError && err.reported) {
-      app.debug(`startup aborted: ${err.message}`)
-      return
+      app.debug(`startup aborted: ${err.message}`);
+      return;
     }
-    app.setPluginError(`Startup failed: ${errMsg(err)}`)
-  })
+    app.setPluginError(`Startup failed: ${errMsg(err)}`);
+  });
 }
