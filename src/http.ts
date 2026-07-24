@@ -1,16 +1,16 @@
-import { errMsg, sleep } from './util.js'
+import { errMsg, sleep } from "./util.js";
 
 /** Injectable fetch for tests; matches the global fetch signature loosely. */
 export type FetchLike = (
   url: string,
-  init?: { signal?: AbortSignal; [key: string]: unknown }
-) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
+  init?: { signal?: AbortSignal; [key: string]: unknown },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export interface FetchWithTimeoutOptions {
   /** Per-request timeout via AbortController. Default 10_000. */
-  timeoutMs?: number
-  fetchImpl?: FetchLike
-  [key: string]: unknown
+  timeoutMs?: number;
+  fetchImpl?: FetchLike;
+  [key: string]: unknown;
 }
 
 /**
@@ -19,27 +19,27 @@ export interface FetchWithTimeoutOptions {
  */
 export async function fetchWithTimeout(
   url: string,
-  options: FetchWithTimeoutOptions = {}
+  options: FetchWithTimeoutOptions = {},
 ): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
-  const { timeoutMs = 10_000, fetchImpl, ...init } = options
-  const impl = fetchImpl ?? (fetch as unknown as FetchLike)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const { timeoutMs = 10_000, fetchImpl, ...init } = options;
+  const impl = fetchImpl ?? (fetch as unknown as FetchLike);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await impl(url, { ...init, signal: controller.signal })
+    return await impl(url, { ...init, signal: controller.signal });
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
   }
 }
 
 export interface WaitForHttpReadyOptions {
   /** Overall deadline. Default 60_000. */
-  maxMs?: number
+  maxMs?: number;
   /** Delay between attempts. Default 1_000. */
-  intervalMs?: number
+  intervalMs?: number;
   /** Per-request timeout. Default 2_000. */
-  requestTimeoutMs?: number
-  fetchImpl?: FetchLike
+  requestTimeoutMs?: number;
+  fetchImpl?: FetchLike;
 }
 
 /**
@@ -49,54 +49,54 @@ export interface WaitForHttpReadyOptions {
  */
 export async function waitForHttpReady(
   url: string,
-  options: WaitForHttpReadyOptions = {}
+  options: WaitForHttpReadyOptions = {},
 ): Promise<void> {
   const {
     maxMs = 60_000,
     intervalMs = 1_000,
     requestTimeoutMs = 2_000,
-    fetchImpl
-  } = options
-  const deadline = Date.now() + maxMs
-  let lastErr: unknown = null
+    fetchImpl,
+  } = options;
+  const deadline = Date.now() + maxMs;
+  let lastErr: unknown;
   for (;;) {
     try {
       const res = await fetchWithTimeout(url, {
         timeoutMs: requestTimeoutMs,
-        fetchImpl
-      })
-      if (res.ok) return
-      lastErr = new Error(`HTTP ${res.status}`)
+        fetchImpl,
+      });
+      if (res.ok) return;
+      lastErr = new Error(`HTTP ${res.status}`);
     } catch (err) {
-      lastErr = err
+      lastErr = err;
     }
-    if (Date.now() >= deadline) break
-    await sleep(intervalMs)
+    if (Date.now() >= deadline) break;
+    await sleep(intervalMs);
   }
   throw new Error(
-    `${url} did not become ready within ${maxMs}ms: ${errMsg(lastErr)}`
-  )
+    `${url} did not become ready within ${maxMs}ms: ${errMsg(lastErr)}`,
+  );
 }
 
 export interface ProbeHttpHealthOptions {
   /** Total attempts. Default 3. */
-  attempts?: number
+  attempts?: number;
   /** Per-attempt timeout. Default 5_000. */
-  attemptTimeoutMs?: number
+  attemptTimeoutMs?: number;
   /** Delay between attempts. Default 2_000. */
-  retryDelayMs?: number
+  retryDelayMs?: number;
   /**
    * Threshold above which a successful probe is flagged slow (likely disk
    * I/O contention on SD-card hosts). Default 1_500.
    */
-  slowMs?: number
-  fetchImpl?: FetchLike
+  slowMs?: number;
+  fetchImpl?: FetchLike;
 }
 
 export interface HealthProbeResult {
-  reachable: boolean
+  reachable: boolean;
   /** Set when reachable but the successful attempt exceeded `slowMs`. */
-  slowMs?: number
+  slowMs?: number;
 }
 
 /**
@@ -107,29 +107,31 @@ export interface HealthProbeResult {
  */
 export async function probeHttpHealth(
   url: string,
-  options: ProbeHttpHealthOptions = {}
+  options: ProbeHttpHealthOptions = {},
 ): Promise<HealthProbeResult> {
   const {
     attempts = 3,
     attemptTimeoutMs = 5_000,
     retryDelayMs = 2_000,
     slowMs = 1_500,
-    fetchImpl
-  } = options
+    fetchImpl,
+  } = options;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(retryDelayMs)
-    const started = Date.now()
+    if (attempt > 0) await sleep(retryDelayMs);
+    const started = Date.now();
     try {
       const res = await fetchWithTimeout(url, {
         timeoutMs: attemptTimeoutMs,
-        fetchImpl
-      })
-      if (!res.ok) continue
-      const elapsed = Date.now() - started
-      return elapsed > slowMs ? { reachable: true, slowMs: elapsed } : { reachable: true }
+        fetchImpl,
+      });
+      if (!res.ok) continue;
+      const elapsed = Date.now() - started;
+      return elapsed > slowMs
+        ? { reachable: true, slowMs: elapsed }
+        : { reachable: true };
     } catch {
       // try again
     }
   }
-  return { reachable: false }
+  return { reachable: false };
 }

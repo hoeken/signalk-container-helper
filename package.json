@@ -23,6 +23,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit --project tsconfig.test.json",
+    "prettier": "prettier --write .",
+    "lint": "eslint --fix",
+    "format": "npm run prettier && npm run lint",
+    "ci-lint": "eslint && prettier --check .",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -39,9 +43,15 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
     "signalk-container": "^1.23.2",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.58.0",
     "vitest": "^3.0.0"
   }
 }

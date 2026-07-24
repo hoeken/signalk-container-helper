@@ -17,24 +17,24 @@
  * on each member.
  */
 
-export type RuntimeName = 'podman' | 'docker'
+export type RuntimeName = "podman" | "docker";
 
 export interface ContainerRuntimeInfo {
-  runtime: RuntimeName
-  version: string
+  runtime: RuntimeName;
+  version: string;
   /** @deprecated Always `false` since the move to the socket client. */
-  isPodmanDockerShim?: boolean
+  isPodmanDockerShim?: boolean;
   /** cgroup v2 controllers available to this runtime; `null` = not probed. */
-  cgroupControllers?: string[] | null
+  cgroupControllers?: string[] | null;
   /** Whether the runtime operates rootless; `null` = not probed. */
-  isRootless?: boolean | null
+  isRootless?: boolean | null;
   /** Effective host uid/gid of the Signal K process; `null` on Windows. */
-  hostUser?: { uid: number; gid: number } | null
+  hostUser?: { uid: number; gid: number } | null;
   /** Unix socket the runtime client resolved to (diagnostic). */
-  socketPath?: string
+  socketPath?: string;
 }
 
-export type ContainerState = 'running' | 'stopped' | 'missing' | 'no-runtime'
+export type ContainerState = "running" | "stopped" | "missing" | "no-runtime";
 
 /**
  * Per-volume policy when the host source path is missing at create time.
@@ -42,29 +42,29 @@ export type ContainerState = 'running' | 'stopped' | 'missing' | 'no-runtime'
  */
 export interface VolumeSpec {
   /** Host path or named-volume string — same shape as the bare-string form. */
-  source: string
+  source: string;
   /**
    * - `'create'` (default): runtime creates the host dir. Plugin state dirs.
    * - `'skip'`: drop the mount when missing. Optional USB/NFS mounts.
    * - `'abort'`: throw from ensureRunning. Required mounts (certs, secrets).
    */
-  ifMissing?: 'create' | 'skip' | 'abort'
+  ifMissing?: "create" | "skip" | "abort";
 }
 
 /** Event delivered to `EnsureRunningOptions.onVolumeIssue`. */
 export interface VolumeIssue {
-  containerPath: string
-  source: string
-  action: 'skipped' | 'aborted' | 'recovered'
-  reason: string
+  containerPath: string;
+  source: string;
+  action: "skipped" | "aborted" | "recovered";
+  reason: string;
 }
 
 /** Event delivered to `EnsureRunningOptions.onUlimitClamped` (1.17.0+). */
 export interface UlimitClamp {
-  ulimit: string
-  requested: number
-  granted: number
-  reason: string
+  ulimit: string;
+  requested: number;
+  granted: number;
+  reason: string;
 }
 
 /**
@@ -75,14 +75,14 @@ export type HealthcheckOverride =
   | false
   | {
       /** Docker HEALTHCHECK array form: ["CMD", ...] or ["CMD-SHELL", "<shell>"]. */
-      test: string[]
+      test: string[];
       /** e.g. "30s" — durations are passed to the runtime verbatim. */
-      interval?: string
-      timeout?: string
+      interval?: string;
+      timeout?: string;
       /** Grace period before failures count, e.g. "15s". */
-      startPeriod?: string
-      retries?: number
-    }
+      startPeriod?: string;
+      retries?: number;
+    };
 
 /**
  * Resource limits applied via podman/docker run flags. Omitted = no limit;
@@ -90,21 +90,21 @@ export type HealthcheckOverride =
  */
 export interface ContainerResourceLimits {
   /** Hard CPU cap (CFS quota), e.g. 1.5 = 1.5 cores. */
-  cpus?: number | null
+  cpus?: number | null;
   /** Soft CPU weight under contention (default 1024). */
-  cpuShares?: number | null
+  cpuShares?: number | null;
   /** Pin to specific cores, e.g. "0,1" or "1-3". */
-  cpusetCpus?: string | null
+  cpusetCpus?: string | null;
   /** Hard memory cap, e.g. "512m", "2g". */
-  memory?: string | null
+  memory?: string | null;
   /** Total memory + swap; set equal to `memory` to disable swap. */
-  memorySwap?: string | null
+  memorySwap?: string | null;
   /** Soft floor — kernel reclaims from containers above this first. */
-  memoryReservation?: string | null
+  memoryReservation?: string | null;
   /** Process/thread cap. */
-  pidsLimit?: number | null
+  pidsLimit?: number | null;
   /** OOM score adjustment, -1000..1000. Higher = killed first. */
-  oomScoreAdj?: number | null
+  oomScoreAdj?: number | null;
 }
 
 /**
@@ -116,70 +116,70 @@ export interface ContainerResourceLimits {
  */
 export interface ContainerConfig {
   /** Image repo without tag, e.g. "ghcr.io/questdb/questdb". */
-  image: string
-  tag: string
+  image: string;
+  tag: string;
   /** Manifest digest ("sha256:<64-hex>"); pulls `image@digest` when set. */
-  digest?: string
+  digest?: string;
   /** Update channel: "tag:<pattern>" | "tag:latest" | "digest:explicit". */
-  updateChannel?: string
+  updateChannel?: string;
   /**
    * When true and `tag` is floating (latest/main/edge/…), every
    * ensureRunning pulls and recreates on digest drift. Offline pull
    * failures are silently skipped. 1.9.0+.
    */
-  autoUpdateOnFloatingTag?: boolean
+  autoUpdateOnFloatingTag?: boolean;
   /** "containerPort/proto" → "hostIp:hostPort". Ignored with networkMode. */
-  ports?: Record<string, string>
+  ports?: Record<string, string>;
   /** container path → host path | named volume | VolumeSpec. */
-  volumes?: Record<string, string | VolumeSpec>
+  volumes?: Record<string, string | VolumeSpec>;
   /**
    * Mount the plugin's Signal K data dir (app.getDataDirPath()) at this
    * container path; the host-side source is resolved automatically for
    * bare-metal and containerized Signal K deployments.
    */
-  signalkDataMount?: string
+  signalkDataMount?: string;
   /** Mount the whole Signal K config root (~/.signalk) here. 1.5.0+. */
-  signalkConfigRootMount?: string
+  signalkConfigRootMount?: string;
   /**
    * Container ports the Signal K process must reach back into; networking
    * strategy is chosen automatically. Read the result with
    * `resolveContainerAddress()` after `ensureRunning()`.
    */
-  signalkAccessiblePorts?: number[]
-  env?: Record<string, string>
+  signalkAccessiblePorts?: number[];
+  env?: Record<string, string>;
   /** Defaults to "unless-stopped" when omitted. */
-  restart?: 'no' | 'unless-stopped' | 'always'
+  restart?: "no" | "unless-stopped" | "always";
   /**
    * Set consistently across calls: toggling between an explicit command and
    * undefined looks like drift on every ensureRunning.
    */
-  command?: string[]
-  networkMode?: string
+  command?: string[];
+  networkMode?: string;
   /** hostname → IP (or "host-gateway") entries for /etc/hosts. */
-  extraHosts?: Record<string, string>
+  extraHosts?: Record<string, string>;
   /**
    * Host-UID ownership mapping. Omit for the default (image runs as root,
    * files on bind mounts owned by the Signal K user). Set
    * `{ inImageUid, inImageGid }` when the image declares a non-root USER.
    * `false` opts out entirely.
    */
-  user?: { inImageUid?: number; inImageGid?: number } | false
+  user?: { inImageUid?: number; inImageGid?: number } | false;
   /** Plugin-default resource limits; users override per-field. */
-  resources?: ContainerResourceLimits
+  resources?: ContainerResourceLimits;
   /**
    * Per-process ulimits, e.g. `{ nofile: 1048576 }`. `nofile` is clamped
    * to the host ceiling (see onUlimitClamped). 1.17.0+ (ignored earlier).
    */
-  ulimits?: Record<string, number | { soft: number; hard: number }>
+  ulimits?: Record<string, number | { soft: number; hard: number }>;
   /** Informational labels (not drift-detected). */
-  labels?: Record<string, string>
+  labels?: Record<string, string>;
   /** Explicit healthcheck override. 1.14.0+ (ignored earlier). */
-  healthcheck?: HealthcheckOverride
+  healthcheck?: HealthcheckOverride;
 }
 
 export interface ContainerInfo {
   /** Full name as the runtime sees it, e.g. "sk-questdb". */
-  name: string
+  name: string;
   /**
    * `name` with the namespace prefix removed, e.g. "questdb" — the form
    * consumer plugins pass to ensureRunning. The namespace is "sk" only by
@@ -189,99 +189,94 @@ export interface ContainerInfo {
    * absent (a very old version), fall back to a namespace-agnostic
    * name-suffix match rather than assuming an "sk-" prefix.
    */
-  unprefixedName?: string
-  image: string
-  state: ContainerState
-  created?: string
+  unprefixedName?: string;
+  image: string;
+  state: ContainerState;
+  created?: string;
   /** e.g. ["127.0.0.1:3010->3010/tcp"] */
-  ports?: string[]
-  managedBy?: string
+  ports?: string[];
+  managedBy?: string;
 }
 
 /** Options bag accepted by `ensureRunning` / `recreate`. */
 export interface EnsureRunningOptions {
   /** Custom app-level health probe (legacy HealthCheckOptions). */
-  healthCheck?: () => Promise<boolean>
-  onUnhealthy?: (name: string, error: string) => void
+  healthCheck?: () => Promise<boolean>;
+  onUnhealthy?: (name: string, error: string) => void;
   /** Fires for volume skip/abort/recovery events. Never awaited. */
-  onVolumeIssue?: (event: VolumeIssue) => void | Promise<void>
+  onVolumeIssue?: (event: VolumeIssue) => void | Promise<void>;
   /** Stream the container's stdout/stderr lines (1.7.0+). Never awaited. */
-  onContainerLog?: (line: string) => void | Promise<void>
+  onContainerLog?: (line: string) => void | Promise<void>;
   /** Backfill the last N lines when (re)attaching the log stream. */
-  onContainerLogStartTail?: number
+  onContainerLogStartTail?: number;
   /** Fired when a requested ulimit was lowered to the host ceiling (1.17.0+). */
-  onUlimitClamped?: (event: UlimitClamp) => void
+  onUlimitClamped?: (event: UlimitClamp) => void;
   /** npm package name — opt-in to digest pinning manifests. */
-  pluginId?: string
-  pluginVersion?: string
+  pluginId?: string;
+  pluginVersion?: string;
 }
 
 export interface ContainerJobConfig {
-  image: string
-  command: string[]
+  image: string;
+  command: string[];
   /** Override the image's baked ENTRYPOINT. */
-  entrypoint?: string[]
+  entrypoint?: string[];
   /** container path → host path, mounted read-only. */
-  inputs?: Record<string, string>
+  inputs?: Record<string, string>;
   /** container path → host path, mounted read-write. */
-  outputs?: Record<string, string>
-  env?: Record<string, string>
+  outputs?: Record<string, string>;
+  env?: Record<string, string>;
   /** Seconds. */
-  timeout?: number
-  onProgress?: (msg: string) => void
-  onStdoutLine?: (line: string) => void
-  onStderrLine?: (line: string) => void
-  resources?: ContainerResourceLimits
-  label?: string
+  timeout?: number;
+  onProgress?: (msg: string) => void;
+  onStdoutLine?: (line: string) => void;
+  onStderrLine?: (line: string) => void;
+  resources?: ContainerResourceLimits;
+  label?: string;
   /** Strongly recommended: enables cleanupOrphanedJobs reaping (1.3.0+). */
-  ownerPluginId?: string
-  user?: { inImageUid?: number; inImageGid?: number } | false
+  ownerPluginId?: string;
+  user?: { inImageUid?: number; inImageGid?: number } | false;
   /** Cancel mid-run; resolves with status "cancelled" (1.16.0+). */
-  signal?: AbortSignal
+  signal?: AbortSignal;
 }
 
 export type ContainerJobStatus =
-  | 'pending'
-  | 'pulling'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  "pending" | "pulling" | "running" | "completed" | "failed" | "cancelled";
 
 export interface ContainerJobResult {
-  id: string
-  status: ContainerJobStatus
-  image: string
-  command: string[]
-  label?: string
-  exitCode?: number
-  log: string[]
-  error?: string
-  createdAt: string
-  startedAt?: string
-  completedAt?: string
-  runtime?: RuntimeName
+  id: string;
+  status: ContainerJobStatus;
+  image: string;
+  command: string[];
+  label?: string;
+  exitCode?: number;
+  log: string[];
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  runtime?: RuntimeName;
 }
 
 export interface PruneResult {
-  imagesRemoved: number
-  spaceReclaimed: string
+  imagesRemoved: number;
+  spaceReclaimed: string;
 }
 
 export interface OrphanJobInfo {
-  name: string
-  image: string
-  ownerPluginId: string
-  label?: string
+  name: string;
+  image: string;
+  ownerPluginId: string;
+  label?: string;
 }
 
 export interface CleanupOrphansResult {
-  reaped: OrphanJobInfo[]
+  reaped: OrphanJobInfo[];
 }
 
 export interface UpdateResourcesResult {
-  method: 'live' | 'recreated'
-  warnings?: string[]
+  method: "live" | "recreated";
+  warnings?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -289,80 +284,84 @@ export interface UpdateResourcesResult {
 // ---------------------------------------------------------------------------
 
 export type VersionSourceResult =
-  | { kind: 'version'; latest: string; metadata?: Record<string, unknown> }
-  | { kind: 'digest'; remoteDigest: string }
-  | { kind: 'error'; error: string }
+  | { kind: "version"; latest: string; metadata?: Record<string, unknown> }
+  | { kind: "digest"; remoteDigest: string }
+  | { kind: "error"; error: string };
 
 /** Pluggable "latest available version" strategy. Built via `updates.sources`. */
 export interface VersionSource {
-  fetch(runtime: ContainerRuntimeInfo): Promise<VersionSourceResult>
+  fetch(runtime: ContainerRuntimeInfo): Promise<VersionSourceResult>;
 }
 
 export interface UpdateRegistration {
   /** Registration key — your plugin id. */
-  pluginId: string
+  pluginId: string;
   /** Container name as passed to ensureRunning (unprefixed). */
-  containerName: string
+  containerName: string;
   /** Image repo without tag. */
-  image: string
+  image: string;
   /**
    * MUST be a function (not a captured value) so live config edits are
    * picked up without re-registering.
    */
-  currentTag: () => string
-  versionSource: VersionSource
+  currentTag: () => string;
+  versionSource: VersionSource;
   /**
    * Query the running container for its version directly; when non-null it
    * takes precedence over currentTag() for the comparison.
    */
-  currentVersion?: () => Promise<string | null>
+  currentVersion?: () => Promise<string | null>;
   /** e.g. "24h" (default), "1h" minimum. */
-  checkInterval?: string
+  checkInterval?: string;
 }
 
 export type UpdateReason =
-  | 'newer-version'
-  | 'digest-drift'
-  | 'older-than-pinned'
-  | 'up-to-date'
-  | 'offline'
-  | 'unknown'
-  | 'error'
+  | "newer-version"
+  | "digest-drift"
+  | "older-than-pinned"
+  | "up-to-date"
+  | "offline"
+  | "unknown"
+  | "error";
 
-export type TagKind = 'semver' | 'floating' | 'unknown'
+export type TagKind = "semver" | "floating" | "unknown";
 
 export interface UpdateCheckResult {
-  pluginId: string
-  containerName: string
-  runningTag: string
-  tagKind: TagKind
-  currentVersion: string | null
-  latestVersion: string | null
-  updateAvailable: boolean
-  reason: UpdateReason
-  error?: string
-  checkedAt: string
-  lastSuccessfulCheckAt: string | null
+  pluginId: string;
+  containerName: string;
+  runningTag: string;
+  tagKind: TagKind;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  reason: UpdateReason;
+  error?: string;
+  checkedAt: string;
+  lastSuccessfulCheckAt: string | null;
   /** True when reason === "offline" and cached data was returned. */
-  fromCache: boolean
+  fromCache: boolean;
 }
 
 export interface UpdateServiceApi {
-  register(reg: UpdateRegistration): void
-  unregister(pluginId: string): void
-  checkOne(pluginId: string): Promise<UpdateCheckResult>
-  checkAll(): Promise<UpdateCheckResult[]>
-  getLastResult(pluginId: string): UpdateCheckResult | null
+  register(reg: UpdateRegistration): void;
+  unregister(pluginId: string): void;
+  checkOne(pluginId: string): Promise<UpdateCheckResult>;
+  checkAll(): Promise<UpdateCheckResult[]>;
+  getLastResult(pluginId: string): UpdateCheckResult | null;
   sources: {
     githubReleases(
       repo: string,
-      options?: { allowPrerelease?: boolean; tagPrefix?: string; token?: string }
-    ): VersionSource
+      options?: {
+        allowPrerelease?: boolean;
+        tagPrefix?: string;
+        token?: string;
+      },
+    ): VersionSource;
     dockerHubTags(
       image: string,
-      options?: { filter?: (tag: string) => boolean }
-    ): VersionSource
-  }
+      options?: { filter?: (tag: string) => boolean },
+    ): VersionSource;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -370,41 +369,41 @@ export interface UpdateServiceApi {
 // ---------------------------------------------------------------------------
 
 export interface HistoryEntry {
-  ts: string
-  from: string | null
-  to: string
+  ts: string;
+  from: string | null;
+  to: string;
   reason:
-    | 'plugin-install'
-    | 'plugin-update'
-    | 'user-pull'
-    | 'auto-update'
-    | 'manual-check'
-  triggeredBy?: string
+    | "plugin-install"
+    | "plugin-update"
+    | "user-pull"
+    | "auto-update"
+    | "manual-check";
+  triggeredBy?: string;
 }
 
 export interface ConsumerManifest {
-  schemaVersion: 1
-  pluginId: string
-  pluginVersion: string
-  registeredAt: string
+  schemaVersion: 1;
+  pluginId: string;
+  pluginVersion: string;
+  registeredAt: string;
   containers: Record<
     string,
     {
-      image: string
-      declaredTag: string
-      declaredDigest: string | null
-      resolvedDigest: string
-      resolvedAt: string
-      updateChannel: string
-      history: HistoryEntry[]
+      image: string;
+      declaredTag: string;
+      declaredDigest: string | null;
+      resolvedDigest: string;
+      resolvedAt: string;
+      updateChannel: string;
+      history: HistoryEntry[];
     }
-  >
+  >;
 }
 
 export interface ManifestApi {
-  get(pluginId: string): Promise<ConsumerManifest | null>
-  list(): Promise<ConsumerManifest[]>
-  getContainerHistory(containerName: string): Promise<HistoryEntry[]>
+  get(pluginId: string): Promise<ConsumerManifest | null>;
+  list(): Promise<ConsumerManifest[]>;
+  getContainerHistory(containerName: string): Promise<HistoryEntry[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,38 +411,38 @@ export interface ManifestApi {
 // ---------------------------------------------------------------------------
 
 export type SelfDeploymentStatus =
-  | 'ok'
-  | 'no-runtime'
-  | 'socket-unreachable'
-  | 'permission-denied'
-  | 'self-id-unresolved'
+  | "ok"
+  | "no-runtime"
+  | "socket-unreachable"
+  | "permission-denied"
+  | "self-id-unresolved";
 
 export interface SelfDeploymentResult {
-  status: SelfDeploymentStatus
+  status: SelfDeploymentStatus;
   /** Copy-pasteable remediation lines for failure statuses. */
-  remediation?: string[]
-  [key: string]: unknown
+  remediation?: string[];
+  [key: string]: unknown;
 }
 
 export interface SetupSnippetResult {
-  snippet: string
-  dockerfile?: string
-  notes?: string[]
+  snippet: string;
+  dockerfile?: string;
+  notes?: string[];
 }
 
 export interface DoctorApi {
   /** Probe an image under the host-UID mapping. Never throws (1.8.0+). */
   imageRunsAsUser(
     image: string,
-    user?: { inImageUid?: number; inImageGid?: number } | false
-  ): Promise<{ ok: boolean; output: string; error?: string }>
+    user?: { inImageUid?: number; inImageGid?: number } | false,
+  ): Promise<{ ok: boolean; output: string; error?: string }>;
   /** Diagnose the Signal K deployment itself. Never throws (1.9.0+). */
-  selfDeployment(): Promise<SelfDeploymentResult>
+  selfDeployment(): Promise<SelfDeploymentResult>;
   /** Templated compose/run snippet for socket wiring (1.10.0+). */
   generateSetupSnippet(
-    format?: 'compose' | 'run',
-    result?: SelfDeploymentResult
-  ): Promise<SetupSnippetResult>
+    format?: "compose" | "run",
+    result?: SelfDeploymentResult,
+  ): Promise<SetupSnippetResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,17 +451,17 @@ export interface DoctorApi {
 
 export interface ContainerManagerApi {
   /** Detected runtime, or null while detection is in flight / failed. */
-  getRuntime(): ContainerRuntimeInfo | null
+  getRuntime(): ContainerRuntimeInfo | null;
   /**
    * Resolves once runtime detection settles (success OR failure) — re-check
    * `getRuntime()` afterwards to tell the two apart. 1.6.0+.
    */
-  whenReady(): Promise<void>
+  whenReady(): Promise<void>;
   /** `image` is the joined "repo:tag" form here (unlike ContainerConfig). */
-  pullImage(image: string, onProgress?: (msg: string) => void): Promise<void>
-  imageExists(image: string): Promise<boolean>
+  pullImage(image: string, onProgress?: (msg: string) => void): Promise<void>;
+  imageExists(image: string): Promise<boolean>;
   /** Local sha256 image id for an image ref or container name. 1.6.0+. */
-  getImageDigest(imageOrContainer: string): Promise<string | null>
+  getImageDigest(imageOrContainer: string): Promise<string | null>;
   /**
    * Idempotent declarative reconcile: create+start if missing, start if
    * stopped, remove+recreate on config drift.
@@ -470,8 +469,8 @@ export interface ContainerManagerApi {
   ensureRunning(
     name: string,
     config: ContainerConfig,
-    options?: EnsureRunningOptions
-  ): Promise<void>
+    options?: EnsureRunningOptions,
+  ): Promise<void>;
   /**
    * Force-recreate regardless of drift detection ("update now", startup
    * self-heal). 1.12.0+ — feature-detect.
@@ -479,13 +478,13 @@ export interface ContainerManagerApi {
   recreate?(
     name: string,
     config: ContainerConfig,
-    options?: EnsureRunningOptions
-  ): Promise<void>
-  start(name: string): Promise<void>
+    options?: EnsureRunningOptions,
+  ): Promise<void>;
+  start(name: string): Promise<void>;
   /** Idempotent. */
-  stop(name: string): Promise<void>
+  stop(name: string): Promise<void>;
   /** Stops and removes. Idempotent. */
-  remove(name: string): Promise<void>
+  remove(name: string): Promise<void>;
   /**
    * Remove a container AND its bind-mount data dir, handling the
    * rootless-Podman subuid ownership trap. 1.18.0+ — feature-detect.
@@ -493,68 +492,67 @@ export interface ContainerManagerApi {
   removeManagedData?(
     name: string,
     hostPath: string,
-    options?: { ownerPluginId?: string }
-  ): Promise<void>
-  getState(name: string): Promise<ContainerState>
+    options?: { ownerPluginId?: string },
+  ): Promise<void>;
+  getState(name: string): Promise<ContainerState>;
   /** Lists managed (namespace-prefixed) containers. */
-  listContainers(): Promise<ContainerInfo[]>
+  listContainers(): Promise<ContainerInfo[]>;
   /** Live-update resource limits, falling back to recreate. */
   updateResources(
     name: string,
-    limits: ContainerResourceLimits
-  ): Promise<UpdateResourcesResult>
+    limits: ContainerResourceLimits,
+  ): Promise<UpdateResourcesResult>;
   /** Effective merged limits ({} when untracked). */
-  getResources(name: string): ContainerResourceLimits
+  getResources(name: string): ContainerResourceLimits;
   /**
    * host:port (or container-name:port) for a port declared via
    * `signalkAccessiblePorts`, after ensureRunning.
    */
   resolveContainerAddress(
     containerName: string,
-    containerPort: number
-  ): Promise<string | null>
+    containerPort: number,
+  ): Promise<string | null>;
   /** Host source backing app.getDataDirPath() in this deployment. */
-  resolveSignalkDataMount?(): Promise<string | null>
+  resolveSignalkDataMount?(): Promise<string | null>;
   /**
    * Translate an absolute path to the (source, subPath) mountable by the
    * host runtime. Null when unreachable. 1.7.0+ — feature-detect.
    */
   resolveHostPath?(
-    absPath: string
-  ): Promise<{ source: string; subPath: string } | null>
+    absPath: string,
+  ): Promise<{ source: string; subPath: string } | null>;
   /** Run a one-shot helper container to completion. */
-  runJob(config: ContainerJobConfig): Promise<ContainerJobResult>
+  runJob(config: ContainerJobConfig): Promise<ContainerJobResult>;
   /** Last N lines of combined stdout/stderr. 1.7.0+ — feature-detect. */
   getLogs?(
     name: string,
-    options?: { tail?: number; since?: number }
-  ): Promise<string[]>
+    options?: { tail?: number; since?: number },
+  ): Promise<string[]>;
   /** Reap sk-job-* containers leaked by a crash. 1.3.0+. */
   cleanupOrphanedJobs(filter: {
-    ownerPluginId: string
-  }): Promise<CleanupOrphansResult>
-  prune(): Promise<PruneResult>
+    ownerPluginId: string;
+  }): Promise<CleanupOrphansResult>;
+  prune(): Promise<PruneResult>;
   execInContainer?(
     name: string,
-    command: string[]
-  ): Promise<{ exitCode: number; stdout: string; stderr: string }>
-  ensureNetwork?(name: string): Promise<void>
-  removeNetwork?(name: string): Promise<void>
-  connectToNetwork?(containerName: string, networkName: string): Promise<void>
+    command: string[],
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
+  ensureNetwork?(name: string): Promise<void>;
+  removeNetwork?(name: string): Promise<void>;
+  connectToNetwork?(containerName: string, networkName: string): Promise<void>;
   disconnectFromNetwork?(
     containerName: string,
-    networkName: string
-  ): Promise<void>
-  updates: UpdateServiceApi
+    networkName: string,
+  ): Promise<void>;
+  updates: UpdateServiceApi;
   /** 1.13.0+ — feature-detect. */
-  manifest?: ManifestApi
+  manifest?: ManifestApi;
   /** 1.8.0+ — feature-detect. */
-  doctor?: DoctorApi
+  doctor?: DoctorApi;
 }
 
 declare global {
-  // eslint-disable-next-line no-var
-  var __signalk_containerManager: ContainerManagerApi | undefined
+  var __signalk_containerManager: ContainerManagerApi | undefined;
 }
 
 /**
@@ -562,8 +560,8 @@ declare global {
  * Status/error setters take ONE argument — the server pre-binds the plugin id.
  */
 export interface AppLike {
-  debug: (msg: string) => void
-  error?: (msg: string) => void
-  setPluginStatus: (msg: string) => void
-  setPluginError: (msg: string) => void
+  debug: (msg: string) => void;
+  error?: (msg: string) => void;
+  setPluginStatus: (msg: string) => void;
+  setPluginError: (msg: string) => void;
 }

@@ -1,4 +1,4 @@
-import type { UpdateServiceApi, VersionSource } from './types.js'
+import type { UpdateServiceApi, VersionSource } from "./types.js";
 
 /**
  * Declarative version-source description, resolved against
@@ -8,33 +8,33 @@ import type { UpdateServiceApi, VersionSource } from './types.js'
 export type VersionSourceSpec =
   | {
       /** GitHub repo, e.g. "questdb/questdb". */
-      githubReleases: string
-      allowPrerelease?: boolean
-      tagPrefix?: string
+      githubReleases: string;
+      allowPrerelease?: boolean;
+      tagPrefix?: string;
       /** Personal access token — lifts the 60/hr anonymous rate limit. */
-      token?: string
+      token?: string;
     }
   | {
       /** Docker Hub image, e.g. "questdb/questdb". */
-      dockerHubTags: string
-      filter?: (tag: string) => boolean
+      dockerHubTags: string;
+      filter?: (tag: string) => boolean;
     }
   | {
       /** Bring your own VersionSource implementation. */
-      custom: VersionSource
-    }
+      custom: VersionSource;
+    };
 
 export function buildVersionSource(
   updates: UpdateServiceApi,
-  spec: VersionSourceSpec
+  spec: VersionSourceSpec,
 ): VersionSource {
-  if ('custom' in spec) {
-    return spec.custom
+  if ("custom" in spec) {
+    return spec.custom;
   }
-  if ('githubReleases' in spec) {
-    const { githubReleases, ...options } = spec
-    return updates.sources.githubReleases(githubReleases, options)
+  if ("githubReleases" in spec) {
+    const { githubReleases, ...options } = spec;
+    return updates.sources.githubReleases(githubReleases, options);
   }
-  const { dockerHubTags, ...options } = spec
-  return updates.sources.dockerHubTags(dockerHubTags, options)
+  const { dockerHubTags, ...options } = spec;
+  return updates.sources.dockerHubTags(dockerHubTags, options);
 }
