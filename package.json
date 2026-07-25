@@ -36,6 +36,14 @@
     "prepublishOnly": "npm run build && npm test",
     "release": "git tag -d v$npm_package_version; git tag v$npm_package_version && git push && git push origin v$npm_package_version"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoeken/signalk-container-helper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hoeken/signalk-container-helper/issues"
+  },
+  "homepage": "https://github.com/hoeken/signalk-container-helper#readme",
   "keywords": [
     "signalk",
     "signalk-container",
