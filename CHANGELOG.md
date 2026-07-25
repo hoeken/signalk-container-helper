@@ -1,3 +1,9 @@
+# v0.2.1
+
+Docs-only release.
+
+- **README: "ESM plugins must build an ESM remote"** — Signal K injects each configurator panel's script tag based on the plugin's package.json `type` field, so `"type": "module"` plugins (like this library, and therefore most of its consumers) must build their panel as an ESM Module Federation container (`experiments.outputModule` + `output.module` + `library: { type: "module" }`); the classic `var` remote the CommonJS reference plugins use loads silently into module scope and fails at panel-open time with the misleading _'Module "…" is not available. Make sure the webapp is installed.'_ The new section documents the server's injection logic, both mismatch failure modes, the webpack recipe, a `get`/`init` verification one-liner, and links [signalk-piper](https://github.com/hoeken/signalk-piper) as a working ESM example — plus a matching panel-conventions bullet, and the "no changes to the standard webpack config" claim is now scoped to loaders
+
 # v0.2.0
 
 - **New `signalk-container-helper/ui` entrypoint** — browser-side React building blocks for plugin config panels, packaging the pieces the reference plugins (`signalk-grafana`, `signalk-questdb`, `mayara-server-signalk-plugin`) had each been hand-copying: the shared inline-style vocabulary (`panelStyles`, `stateColors`), components (`StatusCard`, `VersionSelect`, `UpdateControls`, `Button`, `CollapsibleSection`, and friends), fetch-and-poll hooks (`useStatusPoll`, `useVersions`, `useUpdateFlow`) with self-scheduling polls and stale-response drops, version-dropdown view logic (`deriveVersionsView`) that handles both structured and legacy `/api/versions` shapes and falls back to the running tag so a rate-limited GitHub fetch never blanks the select, and `formatUpdateMessage` typed against `UpdateCheckResult` to match `registerUpdateRoutes`' contract
