@@ -438,11 +438,11 @@ This library is distributed through **npm with semver** — consumers `npm insta
 
 Releases are tag-triggered (`.github/workflows/publish.yml` fires on `v*` tags):
 
-1. Bump `version` in `package.json`, commit, and merge to `master`.
-2. Tag `vX.Y.Z` and push the tag.
-3. The workflow builds, tests, creates a GitHub Release (auto-generated notes), and runs `npm publish --provenance` (prereleases `-beta.`/`-rc.` publish under the `beta` dist-tag).
+1. Bump `version` in `package.json`, add a matching `# vX.Y.Z` section to `CHANGELOG.md`, commit, and merge to `master`.
+2. Run `npm run release` — it tags `v<version>` and pushes the tag.
+3. The workflow extracts that version's CHANGELOG.md section as the GitHub Release notes (and fails if the section is missing), then builds, tests, and runs `npm publish --provenance` (tags containing `alpha`/`beta`/`rc` publish under the matching dist-tag).
 
-Publishing requires an `NPM_TOKEN` repository secret with publish rights to the package.
+Publishing uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) — no npm token secret, but the package must list this repo's workflow as a trusted publisher on npmjs.com.
 
 ## License
 
