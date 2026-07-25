@@ -238,13 +238,14 @@ All errors thrown by the helpers have already been surfaced through
 
 The helpers feature-detect newer signalk-container capabilities:
 
-| Capability                    | Floor  | Fallback behavior                                            |
-| ----------------------------- | ------ | ------------------------------------------------------------ |
-| `whenReady()`                 | 1.6.0  | polls `getRuntime()`                                         |
-| `getLogs()`                   | 1.7.0  | `getLogs()` returns `null`                                   |
-| `recreate()`                  | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
-| `ContainerConfig.healthcheck` | 1.14.0 | ignored by older versions                                    |
-| `ContainerConfig.ulimits`     | 1.17.0 | ignored by older versions                                    |
+| Capability                                             | Floor  | Fallback behavior                                            |
+| ------------------------------------------------------ | ------ | ------------------------------------------------------------ |
+| `whenReady()`                                          | 1.6.0  | polls `getRuntime()`                                         |
+| `getLogs()`                                            | 1.7.0  | `getLogs()` returns `null`                                   |
+| `recreate()`                                           | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
+| `ContainerConfig.healthcheck`                          | 1.14.0 | ignored by older versions                                    |
+| `ContainerConfig.ulimits`                              | 1.17.0 | ignored by older versions                                    |
+| `ContainerConfig.devices` / `ContainerConfig.groupAdd` | 1.24.0 | ignored by older versions                                    |
 
 ## Design rules inherited from the reference plugins
 

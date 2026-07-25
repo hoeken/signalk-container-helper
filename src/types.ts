@@ -11,7 +11,8 @@
  *
  * Source of truth: https://github.com/dirkwa/signalk-container
  *   (src/types.ts and src/updates/types.ts)
- * Last synced against signalk-container: v1.22.0
+ * Last synced against signalk-container: v1.24.0 (pending release —
+ * `devices`/`groupAdd` are ahead of the newest published release, 1.23.2)
  * Supported baseline: v1.6.0 — members newer than the baseline are optional
  * here so call sites are forced to feature-detect. Version floors are noted
  * on each member.
@@ -111,8 +112,9 @@ export interface ContainerResourceLimits {
  * Declarative desired state for a managed container. Pass the same config to
  * `ensureRunning` on every plugin start — signalk-container diffs it against
  * the live container and removes + recreates when `image`, `tag`, `command`,
- * `networkMode`, `env`, `volumes`, or `ports` differ. `restart`, `labels`,
- * `healthcheck`, and `ulimits` are NOT part of drift detection.
+ * `networkMode`, `env`, `volumes`, `ports`, `devices`, or `groupAdd` differ.
+ * `restart`, `labels`, `healthcheck`, and `ulimits` are NOT part of drift
+ * detection.
  */
 export interface ContainerConfig {
   /** Image repo without tag, e.g. "ghcr.io/questdb/questdb". */
@@ -164,6 +166,35 @@ export interface ContainerConfig {
    * `false` opts out entirely.
    */
   user?: { inImageUid?: number; inImageGid?: number } | false;
+  /**
+   * Host devices to expose. Two entry forms:
+   *   - device NODE path, docker `--device` syntax
+   *     `hostPath[:containerPath[:permissions]]` — attached statically at
+   *     create time; a replugged node reappears only on the next recreate.
+   *   - device DIRECTORY path, e.g. "/dev/snd" — hot-plug mode: bind-mounted
+   *     at the same path with device-class cgroup rules opened, so nodes
+   *     appearing after a USB replug stay visible. Use for USB audio,
+   *     input devices, GPUs.
+   * An entry whose host path is missing is skipped with a warning — an
+   * unplugged device never prevents container start. On rootless runtimes
+   * access is governed by plain file permissions on the bound nodes —
+   * combine with `groupAdd` to hold the device group. Part of drift
+   * detection. 1.24.0+ — silently ignored by older versions.
+   */
+  devices?: string[];
+  /**
+   * Supplementary groups (`--group-add`): group names or numeric GIDs.
+   * Names are resolved to GIDs against the HOST's /etc/group (it is the
+   * host GID the kernel checks on host device nodes, and the runtimes
+   * would resolve names against the image's /etc/group instead); a name
+   * unknown to the host is skipped with a warning. On rootless Podman the
+   * `run.oci.keep_original_groups` annotation is additionally emitted so
+   * the container process keeps the host user's own supplementary groups —
+   * `groupAdd: ["audio"]` + `devices: ["/dev/snd"]` then works across
+   * docker and rootful/rootless podman alike. Part of drift detection.
+   * 1.24.0+ — silently ignored by older versions.
+   */
+  groupAdd?: (string | number)[];
   /** Plugin-default resource limits; users override per-field. */
   resources?: ContainerResourceLimits;
   /**

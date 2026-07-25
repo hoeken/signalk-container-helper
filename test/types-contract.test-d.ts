@@ -72,6 +72,12 @@ export type _Entry = Expect<
 // --- direction data actually flows across the manager boundary. A    ---
 // --- non-assignable pair violates the `Sub extends Super` bound.      ---
 // ContainerConfig flows INTO signalk-container (ensureRunning input).
+// Pending-release members mirrored AHEAD of the installed devDep
+// (`devices`/`groupAdd`, signalk-container 1.24.0 vs ^1.23.2 here) are
+// covered by this direction as-is: extra OPTIONAL properties never break
+// Sub-to-Super assignability, and older managers ignore the unknown keys
+// at runtime. Once the 1.24.0 types publish, the same assertion starts
+// checking those members' shapes for real — no exclusion needed.
 export type _Config = Assignable<ContainerConfig, CanonicalContainerConfig>;
 // ContainerInfo flows OUT of signalk-container (listContainers result).
 export type _Info = Assignable<CanonicalContainerInfo, ContainerInfo>;
