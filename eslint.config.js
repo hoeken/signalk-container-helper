@@ -8,7 +8,7 @@ export default defineConfig([
   globalIgnores(["dist", "node_modules"]),
 
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "**/*.tsx"],
     extends: [js.configs.recommended, tseslint.configs.recommended, prettier],
     languageOptions: {
       parser: tseslint.parser,
@@ -17,6 +17,14 @@ export default defineConfig([
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "error",
+    },
+  },
+
+  {
+    // The /ui entry runs in the Admin UI page, not Node.
+    files: ["src/ui/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: globals.browser,
     },
   },
 ]);

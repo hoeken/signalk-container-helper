@@ -11,6 +11,10 @@ mounting `/api/update/check` + `apply` routes, and stopping cleanly. This librar
 packages those patterns — extracted from `signalk-backup`, `mayara-server-signalk-plugin`,
 `signalk-doctor`, and `signalk-updater` — into a small, typed, zero-dependency API.
 
+It also ships the shared **React config-panel building blocks** those plugins
+hand-copied (container status card, image-version dropdown, update controls) as
+a separate browser-side entrypoint, [`signalk-container-helper/ui`](#config-panel-ui-signalk-container-helperui).
+
 See [SPEC.md](SPEC.md) for the full design rationale.
 
 ## Install
@@ -200,6 +204,162 @@ adopted.unregister();
 Why not `manager.getState()` for health? signalk-container namespace-prefixes the
 containers it manages (`sk-<name>`); externally-managed peers don't carry the prefix,
 so the manager can't see them — and "running" isn't "healthy" anyway.
+
+## Config-panel UI (`signalk-container-helper/ui`)
+
+The reference plugins also share a hand-copied React config panel: a container
+status card, an image-version dropdown, a check/apply update row, and the same
+inline-style vocabulary. The `/ui` entrypoint packages those as reusable
+components and hooks. It is a separate subpath export — the main entry stays
+Node-only and zero-dependency; `/ui` needs `react` (an optional peer
+dependency) and runs in the Signal K Admin UI page.
+
+### How it fits the standard panel build
+
+Signal K loads plugin config panels as **webpack Module Federation remotes**
+(`public/remoteEntry.js` exposing `./PluginConfigurationPanel`, with `react`
+shared as a singleton). The standard webpack config runs `babel-loader` with
+`exclude: /node_modules/`, so a library shipping raw JSX would break the
+build. This entrypoint therefore ships **tsc-compiled `React.createElement`
+JS (no JSX)** that webpack bundles directly, and its `import "react"` resolves
+to the host Admin UI's shared React singleton. No changes to the standard
+webpack config are needed.
+
+```bash
+npm install signalk-container-helper react
+```
+
+(`react` can be a devDependency of your plugin — it is only used at bundle
+time; at runtime the Admin UI provides the singleton.)
+
+### Example panel
+
+```jsx
+import React, { useState } from "react";
+import {
+  panelStyles as S,
+  SectionTitle,
+  StatusCard,
+  FieldRow,
+  VersionSelect,
+  UpdateControls,
+  CollapsibleSection,
+  ActionStatus,
+  Button,
+  useStatusPoll,
+  useVersions,
+} from "signalk-container-helper/ui";
+
+const BASE = "/plugins/signalk-myservice";
+
+export default function PluginConfigurationPanel({ configuration, save }) {
+  const cfg = configuration || {};
+  const [tag, setTag] = useState(cfg.imageTag || "latest");
+  const [saved, setSaved] = useState("");
+
+  // Polls /api/status every 5s; parses non-2xx bodies too (unhealthy
+  // responses often carry fields the panel must surface).
+  const { status, loading } = useStatusPoll(`${BASE}/api/status`, {
+    fallback: { status: "not_running" },
+  });
+
+  // Fetches /api/versions once; refresh() from the ↻ button. Accepts a bare
+  // VersionInfo[] or the structured { versions, sources } shape, and keeps
+  // the last known list when the fetch fails.
+  const versions = useVersions(`${BASE}/api/versions`);
+
+  const running = status?.status === "running";
+  return (
+    <div style={S.root}>
+      <SectionTitle>My Service Status</SectionTitle>
+      <StatusCard
+        icon="M"
+        iconBackground={running ? "#7c3aed" : undefined}
+        title="My Service"
+        meta={
+          loading ? "Checking..." : running ? status.endpoint : "Not running"
+        }
+        state={running ? "ok" : "error"}
+        link={running ? { href: status.url, label: "Open ↗" } : undefined}
+      />
+
+      {/* Talks to the routes ManagedContainer.registerUpdateRoutes mounts. */}
+      {running && (
+        <UpdateControls
+          checkUrl={`${BASE}/api/update/check`}
+          applyUrl={`${BASE}/api/update/apply`}
+          tag={tag}
+        />
+      )}
+
+      <SectionTitle>Settings</SectionTitle>
+      <FieldRow label="Image version">
+        <VersionSelect
+          value={tag}
+          onChange={setTag}
+          versions={versions.versions}
+          loading={versions.loading}
+          error={versions.versionsError}
+          onRefresh={versions.refresh}
+        />
+      </FieldRow>
+
+      <CollapsibleSection title="Advanced">
+        <FieldRow label="Extra arguments" hint="rarely needed">
+          <input style={S.input} />
+        </FieldRow>
+      </CollapsibleSection>
+
+      <ActionStatus message={saved} />
+      <div style={{ marginTop: 24 }}>
+        <Button
+          onClick={() => {
+            save({ ...cfg, imageTag: tag });
+            setSaved("Saved! Plugin will restart with new configuration.");
+          }}
+        >
+          Save Configuration
+        </Button>
+      </div>
+    </div>
+  );
+}
+```
+
+### UI exports
+
+| Export                                                                             | Purpose                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `panelStyles`, `stateColors`                                                       | The shared inline-style vocabulary (`root`, `card`, `fieldRow`, `input`, `warnBanner`, …). Inline styles are deliberate: a CSS file shipped by a federation remote would leak into or be clobbered by the host page. Spread-extend: `{ ...panelStyles.input, width: 300 }` |
+| `StatusCard`, `StateDot`                                                           | Container status card (icon, title, meta, optional link, state dot) and the bare green/amber/red dot                                                                                                                                                                       |
+| `VersionSelect`                                                                    | Image-version dropdown: floating tags (`latest`, `main`, …), pre-releases, stable releases, PR test images — and a synthetic `<tag> (running)` option when the current value isn't listed, so the controlled select never silently resets the running image                |
+| `UpdateControls`                                                                   | Self-contained check/apply row against `registerUpdateRoutes`' contract (`GET check` → `UpdateCheckResult`, `POST apply` → `{ success, tag }`)                                                                                                                             |
+| `SectionTitle`, `FieldRow`, `Hint`, `CollapsibleSection`, `Button`, `ActionStatus` | Form scaffolding: uppercase section headings, label + control + hint rows, collapsed-by-default advanced sections (keyboard-accessible), busy-aware buttons, the green/red outcome line                                                                                    |
+| `useStatusPoll(url, opts)`                                                         | Self-scheduling status poll (no overlapping requests on slow hosts; stale responses dropped; body parsed on non-2xx too)                                                                                                                                                   |
+| `useVersions(url)`                                                                 | `/api/versions` fetch with rate-limit/offline error lines; preserves the last known list on failure                                                                                                                                                                        |
+| `useUpdateFlow({ checkUrl, applyUrl })`                                            | The check/apply state machine behind `UpdateControls`, for custom layouts                                                                                                                                                                                                  |
+| `splitVersions`, `shownTags`, `runningTagFallback`, `deriveVersionsView`           | The pure dropdown view-logic (unit-tested without a DOM)                                                                                                                                                                                                                   |
+| `formatUpdateMessage`, `formatTimeAgo`, `formatNumber`                             | `UpdateCheckResult` → status line ("Update available: 1.0.0 → 1.1.0", "Offline — last checked 3h ago…"), relative timestamps, compact counts ("1.2K")                                                                                                                      |
+
+### Panel conventions the components encode
+
+Adopt these even where you don't use the components:
+
+- **A controlled `<select>` must always render its value.** If the running
+  tag isn't in the options (a GitHub rate limit hid it, or a pin fell out of
+  the top-N), inject a synthetic option — otherwise the browser shows the
+  first option and the next Save silently changes the running image.
+- **Version lists degrade, never wipe.** On a failed `/api/versions` fetch,
+  keep showing the last known list with an explanatory error line.
+- **Poll by self-scheduling, not `setInterval`.** On a slow host one response
+  can outlast the poll period; the next request must only start after the
+  previous one settled. Drop stale responses with a generation counter.
+- **Parse status bodies on non-2xx.** Unhealthy responses (503) often carry
+  the very fields the operator needs to fix the problem.
+- **Offline is a state, not an error.** Boats lose connectivity; show "last
+  checked 3h ago", don't paint the panel red.
+- **Persist the requested tag, not the resolved one** after an update, so
+  floating tags like `latest` keep auto-tracking.
 
 ## API overview
 
