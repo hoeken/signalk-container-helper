@@ -222,8 +222,9 @@ shared as a singleton). The standard webpack config runs `babel-loader` with
 `exclude: /node_modules/`, so a library shipping raw JSX would break the
 build. This entrypoint therefore ships **tsc-compiled `React.createElement`
 JS (no JSX)** that webpack bundles directly, and its `import "react"` resolves
-to the host Admin UI's shared React singleton. No changes to the standard
-webpack config are needed.
+to the host Admin UI's shared React singleton. No loader changes are needed —
+but the remote's output format must match your package's module type (next
+section).
 
 ```bash
 npm install signalk-container-helper react
@@ -231,6 +232,68 @@ npm install signalk-container-helper react
 
 (`react` can be a devDependency of your plugin — it is only used at bundle
 time; at runtime the Admin UI provides the singleton.)
+
+### ESM plugins must build an ESM remote
+
+The server injects each panel's script tag based on the **plugin's**
+package.json `type` field:
+
+```js
+moduleInfo.type === "module"
+  ? `<script type="module" src="/${moduleInfo.name}/remoteEntry.js"></script>`
+  : `<script src="/${moduleInfo.name}/remoteEntry.js"></script>`;
+```
+
+The remote's output format must match, and the failure modes on a mismatch
+are unhelpful, so get this right up front:
+
+- **CommonJS plugin** (the reference plugins): the classic remote —
+  `library: { type: "var", name: "<name with [-@/] → _>" }` — which lands on
+  `window` when the plain script tag runs.
+- **`"type": "module"` plugin** (likely yours — this library is ESM-only):
+  the Admin UI loads the panel with a dynamic `import()` and requires real
+  `get`/`init` module exports. A copied `var` remote loads silently into
+  module scope — no window global, no exports — and the panel dies with
+  _'Module "…" is not available. Make sure the webapp is installed.'_ even
+  though discovery and serving worked. Build an **ESM container** instead:
+
+  ```js
+  // webpack.config.cjs (an ESM package needs the .cjs extension, or an ESM config)
+  module.exports = {
+    // ...
+    experiments: { outputModule: true },
+    output: {
+      path: path.resolve(__dirname, "public"),
+      module: true,
+      clean: false,
+    },
+    plugins: [
+      new ModuleFederationPlugin({
+        name: "your_plugin_name",
+        library: { type: "module" }, // no global var name
+        filename: "remoteEntry.js",
+        exposes: {
+          "./PluginConfigurationPanel":
+            "./src/configpanel/PluginConfigurationPanel",
+        },
+        shared: {
+          react: { singleton: true, requiredVersion: "^19" },
+          "react-dom": { singleton: true, requiredVersion: "^19" },
+        },
+      }),
+    ],
+  };
+  ```
+
+  Chunks emit as `.mjs`; verify the container shape with
+  `node -e 'import("./public/remoteEntry.js").then((m) => console.log(typeof m.get, typeof m.init))'`
+  (both must print `function`).
+
+The mismatch breaks in the other direction too: a CJS package emitting an ESM
+remote throws a `SyntaxError` when the browser executes `export` syntax from
+a plain script tag. A working ESM example is
+[signalk-piper](https://github.com/hoeken/signalk-piper)'s
+`webpack.config.cjs`.
 
 ### Example panel
 
@@ -360,6 +423,11 @@ Adopt these even where you don't use the components:
   checked 3h ago", don't paint the panel red.
 - **Persist the requested tag, not the resolved one** after an update, so
   floating tags like `latest` keep auto-tracking.
+- **Match the remote's module format to your package's `type` field.** The
+  server injects `<script type="module">` for `"type": "module"` plugins and
+  a plain script tag otherwise; the wrong webpack `library` type fails only
+  at panel-open time, with a misleading "webapp is not installed" error (see
+  [ESM plugins must build an ESM remote](#esm-plugins-must-build-an-esm-remote)).
 
 ## API overview
 
