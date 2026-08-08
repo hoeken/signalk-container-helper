@@ -1,3 +1,12 @@
+# v0.2.2
+
+Maintenance release — dependency updates only, no changes to the library's public API or runtime behaviour.
+
+- **TypeScript 6** — the dev toolchain moves from `^5.5.0` to `^6.0.3`; the emitted declarations and ESM output are unchanged, and the full build, 96-test suite, and lint chain pass under the new compiler
+- **`signalk-container` type source bumped 1.23.2 → 1.25.2** — the contract test that pins this library's type mirror against `signalk-container/types` still passes, so the mirrored `ContainerManagerApi` / `ContainerConfig` / `UpdateServiceApi` surface has not drifted against the newer manager
+- Dev-dependency refresh: `eslint` 10.7.0 → 10.8.0, `typescript-eslint` 8.65.0 → 8.66.0, `globals` 17.7.0 → 17.9.0, `@types/react` 19.2.17 → 19.2.18
+- CI: `actions/checkout` and `actions/setup-node` bumped to v7 in the publish workflow
+
 # v0.2.1
 
 Docs-only release.
