@@ -35,7 +35,7 @@ versioning breaks npm semver ranges):
 }
 ```
 
-Requires **Node ≥ 24**. This library is published as an **ES module** (`import`, not
+Requires **Node ≥ 22**. This library is published as an **ES module** (`import`, not
 `require`); consumers must be ESM too.
 
 At **runtime** it works with signalk-container ≥ 1.6.0 — newer manager features

@@ -1,3 +1,8 @@
+# v0.3.0
+
+- **Node floor lowered to `>=22`** (was `>=24`) — nothing in the library ever required Node 24: the main entry imports no Node builtins at all, and the only runtime globals it touches (`fetch`, `AbortController`, a plain `setTimeout`-based timeout in `fetchWithTimeout`, `URL`, `globalThis`) predate Node 22 comfortably. There is no `AbortSignal.any()` / `AbortSignal.timeout()`, no `node:sqlite`, and the compiler targets ES2023. The old floor was a policy value that consumers — Signal K plugins, which inherit their host server's Node — had to satisfy for no technical reason. This is a **minor**, not a patch: it widens the supported range and takes nothing away, so Node 24 consumers are unaffected
+- **The floor is now enforced rather than asserted** — CI builds, tests, and lints on a `["22", "24"]` matrix instead of Node 24 alone, and `@types/node` drops to `^22` so the typechecker fails on any Node 24-only API that gets introduced later. Previously the package claimed a floor that nothing verified
+
 # v0.2.2
 
 Maintenance release — dependency updates only, no changes to the library's public API or runtime behaviour.
