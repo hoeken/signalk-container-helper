@@ -1,3 +1,23 @@
+# v0.3.1
+
+Maintenance release. One small change reaches the published package; the rest of
+the work since 0.3.0 was tooling and documentation that does not ship.
+
+- **`useStatusPoll` schedules its repeat poll through an explicit void wrapper** —
+  `setTimeout(poll, intervalMs)` became `setTimeout(() => void poll(), intervalMs)`.
+  Behaviour is unchanged: the surrounding effect already handled the async
+  correctly, with `void` on the initial call, a `cancelled` guard before
+  rescheduling, and `AbortController.abort()` on cleanup. This makes the
+  intent explicit rather than fixing a live defect, and satisfies
+  `@typescript-eslint/no-misused-promises`
+- **`fetchWithTimeout` drops an unnecessary `fetch as unknown as FetchLike`
+  double assertion** — `fetch` already satisfies `FetchLike`. Type-only change;
+  the emitted JavaScript is byte-identical
+- Internal, not shipped: eslint moved to the type-checked tier, which is what
+  surfaced both items above; `package-lock.json` is no longer committed (CI
+  generates one per run, matching the signalk-server pattern); `AGENTS.md` and
+  `CLAUDE.md` document the repo's conventions and release process
+
 # v0.3.0
 
 - **Node floor lowered to `>=22`** (was `>=24`) — nothing in the library ever required Node 24: the main entry imports no Node builtins at all, and the only runtime globals it touches (`fetch`, `AbortController`, a plain `setTimeout`-based timeout in `fetchWithTimeout`, `URL`, `globalThis`) predate Node 22 comfortably. There is no `AbortSignal.any()` / `AbortSignal.timeout()`, no `node:sqlite`, and the compiler targets ES2023. The old floor was a policy value that consumers — Signal K plugins, which inherit their host server's Node — had to satisfy for no technical reason. This is a **minor**, not a patch: it widens the supported range and takes nothing away, so Node 24 consumers are unaffected
