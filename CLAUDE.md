@@ -11,7 +11,7 @@ with it.
 Two things are worth knowing before you run anything, because both do damage
 silently:
 
-- **Install with `npm ci`, never `npm install`.**
+- **`package-lock.json` is not committed** — install with plain `npm install`.
 - **Never mix a version bump into a feature or fix PR.**
 
 `AGENTS.md` explains why, and covers the rest.

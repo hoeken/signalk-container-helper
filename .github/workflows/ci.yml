@@ -24,10 +24,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      # npm ci, not npm install: it fails on a package.json/package-lock.json
-      # mismatch instead of silently reconciling it, so lockfile drift surfaces
-      # here rather than in the publish workflow, which also runs npm ci.
-      - run: npm ci
+      # package-lock.json is not committed (see .gitignore). Generate one for
+      # this run, then install from it: npm ci gives a clean, reproducible
+      # install within the run, while resolving fresh each time avoids the
+      # drift class a committed lockfile creates. Same pattern as signalk-server.
+      - name: Install
+        run: |
+          npm install --package-lock-only
+          npm ci
 
       - name: Lint and format check
         run: npm run ci-lint

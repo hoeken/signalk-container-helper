@@ -57,7 +57,12 @@ jobs:
           node-version: "24.x"
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm ci
+      # package-lock.json is not committed, so generate one before npm ci --
+      # a bare npm ci here would fail with no lockfile present.
+      - name: Install
+        run: |
+          npm install --package-lock-only
+          npm ci
 
       - name: Publish to npm
         run: |

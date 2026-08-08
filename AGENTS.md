@@ -48,7 +48,7 @@ still correct — say so explicitly rather than assuming it.
 ## Commands
 
 ```bash
-npm ci            # install — NOT npm install, see the lockfile trap below
+npm install       # no committed lockfile; see the note under Traps
 npm run build     # tsc
 npm test          # typecheck:test && vitest run
 npm run ci-lint   # eslint && prettier --check .
@@ -63,33 +63,33 @@ that a local run would have caught.
 
 These have each cost a real debugging session. They are not hypothetical.
 
-### `~/.npmrc` with `package-lock=false` silently corrupts releases
+### `package-lock.json` is not committed — install with plain `npm install`
 
-If your `~/.npmrc` contains `package-lock=false` (this maintainer's does), then
-`npm install` updates `node_modules` and the version field in `package.json`
-**but never writes `package-lock.json`**. The result is a lockfile that no longer
-matches `package.json`, committed without warning.
+Locally, just run `npm install`. There is no committed lockfile to keep in sync,
+and nothing to remember.
 
-`npm ci` rejects that mismatch with `EUSAGE`. `npm install` does not. Since
-`publish.yml` runs `npm ci`, the failure surfaces **at release time**, after the
-tag is already pushed.
+This is deliberate. npm **ignores a dependency's lockfile entirely** — consumers
+of a library resolve against their own tree — so committing one here bought
+nothing downstream while creating a drift class that only failed at release time.
+The v0.3.0 release shipped a lockfile with the right version number and the wrong
+`@types/node` for exactly this reason: a `~/.npmrc` containing
+`package-lock=false` (this maintainer's does) makes `npm install` skip the
+lockfile write, and `npm version` rewrites only the version fields, so a bump
+looks complete while a dependency change from the same session is missing.
 
-What makes this genuinely confusing: `npm version` _does_ rewrite an existing
-lockfile even with `package-lock=false`, so a version bump looks like it updated
-everything. It only rewrites the version fields — a _dependency_ change made by
-`npm install` in the same session is still missing. That is exactly how v0.3.0
-shipped a lockfile with the right version number and the wrong `@types/node`.
+Removing the committed lockfile removes that whole failure mode. Both workflows
+now generate one per run and install from it:
 
-When changing a dependency:
-
-```bash
-npm install --package-lock=true --package-lock-only   # force the lockfile write
-npm ci                                                 # must exit 0
+```yaml
+npm install --package-lock-only
+npm ci
 ```
 
-`ci.yml` now runs `npm ci` specifically so this fails at PR time instead. Do not
-change it back to `npm install` — that divergence is what let the bug through
-once already.
+That keeps each CI run internally reproducible while resolving fresh every time —
+the same pattern `signalk-server` uses. The trade is real and worth knowing: a
+transitive dependency can now break CI without any change on our side. That is
+acceptable for a zero-runtime-dependency library whose lockfile no consumer ever
+sees; it would not be for an application.
 
 ### `test/` is compiled by a separate tsconfig
 
@@ -139,13 +139,13 @@ presence is how you confirm the OIDC path was used.
 
 1. **Land the work.** Feature and fix PRs carry no version bump.
 2. **Open a release PR, on its own.** Branch `chore-release-<x>-<y>-<z>`:
-   - `npm version <x.y.z> --no-git-tag-version` (bumps `package.json` **and** the
-     lockfile — confirm both moved)
+   - `npm version <x.y.z> --no-git-tag-version` (bumps `package.json`; there is
+     no committed lockfile to keep in step)
    - add the `# v<x.y.z>` CHANGELOG section
    - commit as `chore(release): <x.y.z>` — nothing else in the commit
 3. **Verify before tagging**, on merged `main`:
    ```bash
-   rm -rf node_modules && npm ci    # must exit 0 — catches lockfile drift
+   rm -rf node_modules package-lock.json && npm install
    npm run build && npm test && npm run ci-lint
    ```
 4. **Tag the merge commit on `main`** and push:

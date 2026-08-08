@@ -4,6 +4,14 @@
 dist/
 node_modules/
 
+# Not committed by design. This is a zero-runtime-dependency library, and npm
+# ignores a dependency's lockfile entirely -- consumers resolve against their
+# own tree -- so a committed lockfile buys nothing downstream while creating a
+# drift class that only fails at release time. CI generates one per run with
+# `npm install --package-lock-only` and then installs with `npm ci`, matching
+# the signalk-server pattern.
+package-lock.json
+
 # reference checkouts (separate repositories, analyzed for the spec)
 mayara-server-signalk-plugin/
 signalk-backup/
