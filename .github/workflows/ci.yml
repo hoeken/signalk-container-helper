@@ -24,7 +24,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - run: npm install
+      # npm ci, not npm install: it fails on a package.json/package-lock.json
+      # mismatch instead of silently reconciling it, so lockfile drift surfaces
+      # here rather than in the publish workflow, which also runs npm ci.
+      - run: npm ci
 
       - name: Lint and format check
         run: npm run ci-lint
