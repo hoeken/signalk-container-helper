@@ -71,7 +71,8 @@ export function useStatusPoll<T = unknown>(
     const controller = new AbortController();
     const poll = async () => {
       await fetchOnce(controller.signal);
-      if (!cancelled && intervalMs > 0) timer = setTimeout(poll, intervalMs);
+      if (!cancelled && intervalMs > 0)
+        timer = setTimeout(() => void poll(), intervalMs);
     };
     void poll();
     return () => {

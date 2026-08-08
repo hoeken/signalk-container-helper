@@ -22,7 +22,7 @@ export async function fetchWithTimeout(
   options: FetchWithTimeoutOptions = {},
 ): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
   const { timeoutMs = 10_000, fetchImpl, ...init } = options;
-  const impl = fetchImpl ?? (fetch as unknown as FetchLike);
+  const impl = fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
