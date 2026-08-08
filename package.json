@@ -1,6 +1,6 @@
 {
   "name": "signalk-container-helper",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Helper library for Signal K plugins that manage containers via the signalk-container plugin",
   "type": "module",
   "main": "dist/index.js",
@@ -55,7 +55,7 @@
   "author": "hoeken",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "peerDependencies": {
     "react": ">=17"
@@ -66,14 +66,14 @@
     }
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "react": "^19.0.0",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.0.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.0.0",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
     "prettier": "^3.8.1",
+    "react": "^19.0.0",
     "signalk-container": "^1.23.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.0",
