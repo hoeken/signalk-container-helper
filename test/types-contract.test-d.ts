@@ -21,6 +21,7 @@ import type {
   VersionSource as CanonicalVersionSource,
   VersionSourceResult as CanonicalVersionSourceResult,
   UpdateServiceApi as CanonicalUpdateServiceApi,
+  NofileLimits as CanonicalNofileLimits,
 } from "signalk-container/types";
 import type {
   ConsumerManifest,
@@ -37,6 +38,7 @@ import type {
   VersionSource,
   VersionSourceResult,
   UpdateServiceApi,
+  NofileLimits,
 } from "../src/types.js";
 
 // Exact structural equality: resolves to `true` only when A and B are
@@ -93,6 +95,10 @@ export type _Limits = Assignable<
 // --- data shapes are asserted byte-identical; the enums too.          ---
 export type _UpdateReason = Expect<Equals<UpdateReason, CanonicalUpdateReason>>;
 export type _TagKind = Expect<Equals<TagKind, CanonicalTagKind>>;
+// getContainerNofile's return shape (signalk-container 1.25.3+). Mirrored so
+// consumers can feature-detect the probe without redeclaring the type — a
+// gap here is what pushes a plugin back to hand-written interfaces.
+export type _NofileLimits = Expect<Equals<NofileLimits, CanonicalNofileLimits>>;
 export type _VersionSourceResult = Expect<
   Equals<VersionSourceResult, CanonicalVersionSourceResult>
 >;
