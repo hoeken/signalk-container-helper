@@ -1,3 +1,17 @@
+# Unreleased
+
+- **`SelfDeploymentResult` is mirrored in full**, and `SelfDeploymentStatus`
+  gains the `cgroup-controllers-incomplete` variant it was missing. The
+  interface previously carried only `status` and `remediation` behind an
+  `[key: string]: unknown` index signature, so it looked complete while
+  typing every other field as `unknown` — a consumer reading
+  `isContainerized`, the field `doctor.selfDeployment()` exists for, got
+  neither a value nor an error. Ten fields were absent.
+
+  Both types are now pinned in the contract test, which fails against the old
+  shape. Found by a consumer whose own (correct) type disagreed with the
+  mirror — see #27 for the coverage gap that let it drift.
+
 # v0.4.2
 
 - **`ContainerManagerApi.getContainerNofile` is mirrored** (signalk-container
