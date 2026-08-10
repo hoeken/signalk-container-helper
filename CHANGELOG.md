@@ -1,4 +1,4 @@
-# Unreleased
+# v0.4.3
 
 - **`SelfDeploymentResult` is mirrored in full**, and `SelfDeploymentStatus`
   gains the `cgroup-controllers-incomplete` variant it was missing. The
