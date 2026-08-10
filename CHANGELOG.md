@@ -1,3 +1,13 @@
+# Unreleased
+
+- **`ContainerManagerApi.getContainerNofile` is mirrored** (signalk-container
+  1.25.3+), along with its `NofileLimits` return type. It reports the nofile
+  limits a container is actually running with, which is how a plugin clears a
+  stale "capped by the host" ulimit advisory once the container does get the
+  full requested limit. Optional, so feature-detect it. Without this a
+  consumer had to hand-declare the method and intersect it with the mirrored
+  interface — the drift the mirror exists to prevent.
+
 # v0.4.1
 
 - **`CollapsibleSection` headers read as controls.** The header button

@@ -480,6 +480,12 @@ export interface DoctorApi {
 // The manager object published on globalThis
 // ---------------------------------------------------------------------------
 
+/** Soft/hard nofile limits observed on a running container. */
+export interface NofileLimits {
+  soft: number;
+  hard: number;
+}
+
 export interface ContainerManagerApi {
   /** Detected runtime, or null while detection is in flight / failed. */
   getRuntime(): ContainerRuntimeInfo | null;
@@ -559,6 +565,17 @@ export interface ContainerManagerApi {
     name: string,
     options?: { tail?: number; since?: number },
   ): Promise<string[]>;
+  /**
+   * The nofile limits the named container is ACTUALLY running with, or null
+   * when it does not exist or neither source is readable (a containerized
+   * Signal K without pid-namespace access). Treat null as "unknown", never as
+   * a limit.
+   *
+   * Use it to verify that a previously reported ulimit clamp still reflects
+   * reality — e.g. to clear a "capped by the host" advisory once the container
+   * does run with the full requested limit. 1.25.3+ — feature-detect.
+   */
+  getContainerNofile?(name: string): Promise<NofileLimits | null>;
   /** Reap sk-job-* containers leaked by a crash. 1.3.0+. */
   cleanupOrphanedJobs(filter: {
     ownerPluginId: string;
