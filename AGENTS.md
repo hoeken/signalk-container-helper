@@ -97,20 +97,23 @@ sees; it would not be for an application.
 `npm run typecheck:test` (`tsconfig.test.json`), which `npm test` runs first. A
 type error in a test does not fail `npm run build`.
 
-### The publish workflow parses CHANGELOG.md by exact heading
+### Release notes are generated from merged PR titles
 
-`publish.yml` extracts release notes with `awk` matching the literal heading
-`# v<tag>`. Tag `v1.2.3` requires a heading of exactly `# v1.2.3` — no `##`, no
-date suffix, no `v` omitted. A missing or misspelled section is a **hard failure**
-of the release job.
+There is no CHANGELOG.md. `publish.yml` sets `generate_release_notes: true`, so
+the notes for a tag are GitHub's own list of the PRs merged since the previous
+tag, grouped into sections by `.github/release.yml` (which maps labels →
+headings, with `"*"` catching the unlabelled).
 
-Verify before tagging:
+Two consequences worth internalising:
 
-```bash
-awk -v ver="# v0.3.0" '$0==ver{f=1;next} f&&/^# v/{exit} f{print}' CHANGELOG.md
-```
+- **A PR title is user-facing copy.** It is what appears in the release notes,
+  so it has to read as a change description on its own — see
+  [Commit and PR titles](#commit-and-pr-titles).
+- **Labels choose the section.** An unlabelled PR lands under "Other" rather
+  than "🚀 Features" or "🐛 Fixes". Label the PR when you open it.
 
-Empty output means the release will fail.
+The release job checks out with `fetch-depth: 0`; note generation diffs against
+the previous tag and a shallow clone does not have it.
 
 ### `npm run release` tags whatever is checked out
 
@@ -141,7 +144,6 @@ presence is how you confirm the OIDC path was used.
 2. **Open a release PR, on its own.** Branch `chore-release-<x>-<y>-<z>`:
    - `npm version <x.y.z> --no-git-tag-version` (bumps `package.json`; there is
      no committed lockfile to keep in step)
-   - add the `# v<x.y.z>` CHANGELOG section
    - commit as `chore(release): <x.y.z>` — nothing else in the commit
 3. **Verify before tagging**, on merged `main`:
    ```bash
@@ -153,8 +155,9 @@ presence is how you confirm the OIDC path was used.
    git checkout main && git pull --ff-only
    git tag v<x.y.z> <merge-sha> && git push origin v<x.y.z>
    ```
-5. The tag push triggers `publish.yml`: GitHub Release from the CHANGELOG
-   section, then `npm publish --provenance`.
+5. The tag push triggers `publish.yml`: a GitHub Release whose notes are
+   generated from the PRs merged since the previous tag, then
+   `npm publish --provenance`.
 
 ### Choosing the number
 
@@ -166,21 +169,35 @@ Semver against **consumers**, not against the size of the diff:
 - **major** — removing or narrowing anything a consumer depends on, including
   raising the Node floor or tightening a peer range
 
-## Commit and PR conventions
+## Commit and PR titles
 
-Angular style, already consistent across this repo's history:
+Angular style, required for **both commit subjects and PR titles**, and already
+consistent across this repo's history:
 
 ```
 <type>(<optional scope>): <subject>
 ```
 
 Types in use: `feat`, `fix`, `chore`, `docs`, `test`, `ci`, `refactor`. Scopes are
-used sparingly — `chore(release):`, `chore(deps):`.
+used sparingly — `chore(release):`, `chore(deps):`, `fix(util):`, `feat(retry):`.
+
+**A PR title is published copy.** Release notes are generated from the titles of
+the PRs merged since the previous tag, so the title is what a consumer reads when
+deciding whether to upgrade — not an internal label. Write it as a standalone
+description of the change:
+
+```
+feat(retry): add retryForever and ManagedContainer readinessRetry
+fix(util): walk error cause chains in errMsg
+```
+
+not `fix stuff`, `address review`, or `WIP`.
 
 - Subject in imperative mood, lowercase, no trailing period.
 - Body explains **why**, not what the diff already shows. The interesting content
   is the reasoning and the evidence.
-- **PR titles follow the same convention** — they become the merge commit subject.
+- **Label the PR when you open it** — `.github/release.yml` groups the notes by
+  label, and an unlabelled PR falls through to "Other".
 - Branches use **hyphens, not slashes**: `chore-release-0-2-2`,
   `fix-lockfile-types-node-drift`. (Dependabot's slashed branches are the one
   exception and are not a precedent.)
@@ -199,8 +216,8 @@ cr review --agent --base main
 Two things follow. First, run that yourself before pushing — nothing on GitHub
 will do it for you. Second, if the app is ever installed, note that CodeRabbit
 skips `chore(release):` and `chore(deps):` titles entirely; that is harmless for a
-pure version bump, but it is another reason to keep release PRs mechanical (bump
-plus changelog, nothing else) and put anything reviewable in its own PR.
+pure version bump, but it is another reason to keep release PRs mechanical (the
+version bump and nothing else) and put anything reviewable in its own PR.
 
 ## Claims and evidence
 
