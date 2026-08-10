@@ -1,3 +1,15 @@
+# Unreleased
+
+- **`CollapsibleSection` headers read as controls.** The header button
+  inherited `sectionTitle`'s muted `#888`, so a collapsed section looked like
+  a caption rather than something to click — a signalk-questdb user reported
+  a config field as uneditable when it was only collapsed
+  ([dirkwa/signalk-questdb#123](https://github.com/dirkwa/signalk-questdb/issues/123)).
+  The chrome moves into two new exported styles, `sectionToggle` (which
+  overrides the colour to `#555`, the same tone as `label`) and
+  `sectionMarker` (an 11px disclosure triangle, up from 10px). Every panel
+  using `CollapsibleSection` picks this up; nothing else changes.
+
 # v0.4.0
 
 - **`start()` and `applyUpdate()` accept an `AbortSignal`** via a new optional

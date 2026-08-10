@@ -19,6 +19,29 @@ export const panelStyles = {
     color: "#333",
     padding: "16px 0",
   },
+  // Chrome for a CollapsibleSection's header button. Spread OVER
+  // sectionTitle, so the `color` here deliberately overrides that block's
+  // #888: a collapsed section hides real settings, and at #888 the header
+  // reads as a muted caption rather than something to click. A signalk-questdb
+  // user reported its path-filter field as uneditable when it was only
+  // collapsed (dirkwa/signalk-questdb#123). #555 is the same colour as
+  // `label`, i.e. the panel's "this is an actual control" tone.
+  sectionToggle: {
+    color: "#555",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    width: "100%",
+    textAlign: "left",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  // The ▶ disclosure triangle. `transform` stays at the call site because it
+  // is derived from open/closed state.
+  sectionMarker: { fontSize: 11, transition: "transform 0.15s" },
   sectionTitle: {
     fontSize: 13,
     fontWeight: 600,
