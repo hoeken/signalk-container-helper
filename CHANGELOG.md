@@ -16,6 +16,11 @@
 
   `waitForContainerManager` and `waitForHttpReady` take a `signal` too, so
   their poll loops exit promptly instead of running out their full budget.
+  An aborted `waitForHttpReady` throws an `AbortError` (a `DOMException`,
+  matching what `fetch` itself throws) rather than its deadline error — a
+  caller that cancelled must be able to tell "I stopped this" from "the app
+  never came up", or a container it deliberately tore down surfaces a
+  readiness failure.
 
 - **Lifecycle operations are serialized per `ManagedContainer`.** An
   overlapping `start` and `stop` — a plugin restarted while its first start is

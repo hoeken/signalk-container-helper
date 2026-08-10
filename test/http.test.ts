@@ -111,3 +111,42 @@ describe("probeHttpHealth", () => {
     expect(result.slowMs).toBeGreaterThanOrEqual(15);
   });
 });
+
+describe("waitForHttpReady cancellation", () => {
+  it("throws an AbortError, not the deadline error, when aborted mid-poll", async () => {
+    // The distinction matters to the caller: "I cancelled this" must not be
+    // reported as "the app never became ready", or a container the operator
+    // deliberately tore down surfaces a readiness failure.
+    const controller = new AbortController();
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls++;
+      if (calls === 2) controller.abort();
+      throw new Error("ECONNREFUSED");
+    });
+
+    const err = await waitForHttpReady("http://x/ping", {
+      maxMs: 60_000,
+      intervalMs: 1,
+      fetchImpl,
+      signal: controller.signal,
+    }).catch((e: unknown) => e);
+
+    expect((err as DOMException).name).toBe("AbortError");
+    expect((err as Error).message).not.toContain("did not become ready");
+    // Stopped promptly rather than running out the 60s budget.
+    expect(calls).toBe(2);
+  });
+
+  it("does not poll at all when already aborted", async () => {
+    const fetchImpl = vi.fn();
+
+    const err = await waitForHttpReady("http://x/ping", {
+      fetchImpl,
+      signal: AbortSignal.abort(),
+    }).catch((e: unknown) => e);
+
+    expect((err as DOMException).name).toBe("AbortError");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

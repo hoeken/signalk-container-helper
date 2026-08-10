@@ -80,11 +80,13 @@ export function startSafely(app: AppLike, fn: () => Promise<unknown>): void {
 /**
  * Throws if `signal` has been aborted.
  *
- * Called after every await inside a long container operation. signalk-container
- * honours `AbortSignal` on the job itself (1.16.0+), but the helper's own
- * steps — waiting for the manager global, probing for drift, polling HTTP
- * readiness — sit between those calls, and without a check the operation would
- * keep working against a container the caller has already abandoned.
+ * Called after every await inside a long container operation. This is the
+ * whole of the helper's cancellation: signalk-container exposes a signal only
+ * on its one-off job API, so `ensureRunning`/`recreate`/`stop` cannot be
+ * interrupted mid-call. Checking between steps is what stops an abandoned
+ * operation from continuing — through the manager-global wait, the drift
+ * probe and readiness polling — against a container the caller has already
+ * torn down.
  *
  * `reported: true` because a cancellation is the caller's own doing: it asked
  * for the stop. Surfacing "Startup failed: cancelled" in the plugin error box
