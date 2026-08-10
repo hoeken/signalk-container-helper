@@ -1,5 +1,9 @@
-// Type-level contract test. This file is checked by `tsc` (via the
-// `typecheck` script and vitest's typecheck mode), NOT executed — the
+// Type-level contract test. This file is checked by `tsc` via the
+// `typecheck:test` script (tsconfig.test.json, which is the only tsconfig
+// that includes `test/` — the plain `typecheck` script covers `src` only),
+// NOT executed: vitest never loads it, since its include glob matches
+// `*.test.ts` and this is a `*.test-d.ts`. CI reaches it through
+// `npm test`, which runs `typecheck:test` before vitest. The
 // assertions below fail COMPILATION if this library's hand-written type
 // mirror drifts from signalk-container's published `signalk-container/types`
 // surface (1.23.0+). Consumers of this library take no transitive
@@ -24,6 +28,7 @@ import type {
   NofileLimits as CanonicalNofileLimits,
   SelfDeploymentResult as CanonicalSelfDeploymentResult,
   SelfDeploymentStatus as CanonicalSelfDeploymentStatus,
+  ContainerManagerApi as CanonicalContainerManagerApi,
 } from "signalk-container/types";
 import type {
   ConsumerManifest,
@@ -43,6 +48,7 @@ import type {
   NofileLimits,
   SelfDeploymentResult,
   SelfDeploymentStatus,
+  ContainerManagerApi,
 } from "../src/types.js";
 
 // Exact structural equality: resolves to `true` only when A and B are
@@ -148,3 +154,29 @@ export type _UpdateServiceApi = Assignable<
   CanonicalUpdateServiceApi,
   UpdateServiceApi
 >;
+
+// --- ContainerManagerApi: NAME coverage only (#27). ---
+// A structural `Equals` is impossible here by design: canonical declares every
+// member required, while this mirror marks feature-detected members optional so
+// consumers can probe older installs (README: "Feature-detected members stay
+// optional here"). Relaxing the mirror to force equality would silently drop
+// that contract. Asserting names instead catches the only failure mode that has
+// actually occurred — signalk-container grew a member and the mirror missed it
+// (#25's `getContainerNofile`, absent since 1.25.3 with CI green throughout).
+//
+// One-directional on purpose: the converse is NOT asserted, so the mirror may
+// retain a member a newer signalk-container has dropped and older installs keep
+// typechecking.
+//
+// `keyof` covers properties as well as methods, so this pins the whole surface
+// (31 members today) — including `updates`, `manifest` and `doctor`.
+type MissingFromMirror = Exclude<
+  keyof CanonicalContainerManagerApi,
+  keyof ContainerManagerApi
+>;
+// `Expect<Equals<MissingFromMirror, never>>` would report only "'false' does not
+// satisfy 'true'". Constraining the union against `never` instead makes tsc name
+// the offending member, so a failure says WHAT drifted. Do NOT rewrite this as a
+// conditional type that returns a tuple of the missing names — that evaluates
+// instead of erroring, and passes under real drift.
+export type _ManagerCoverage = Assignable<MissingFromMirror, never>;
