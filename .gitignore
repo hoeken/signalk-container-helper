@@ -12,6 +12,9 @@ node_modules/
 # the signalk-server pattern.
 package-lock.json
 
+# local code-review output (coderabbit CLI); regenerated per run, never shared
+cr-review*
+
 # reference checkouts (separate repositories, analyzed for the spec)
 mayara-server-signalk-plugin/
 signalk-backup/
