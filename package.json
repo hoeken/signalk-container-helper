@@ -1,6 +1,6 @@
 {
   "name": "signalk-container-helper",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Helper library for Signal K plugins that manage containers via the signalk-container plugin",
   "type": "module",
   "main": "dist/index.js",

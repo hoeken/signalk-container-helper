@@ -1,4 +1,4 @@
-# Unreleased
+# v0.4.2
 
 - **`ContainerManagerApi.getContainerNofile` is mirrored** (signalk-container
   1.25.3+), along with its `NofileLimits` return type. It reports the nofile
