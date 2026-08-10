@@ -20,6 +20,48 @@
   Implementation and tests ported from signalk-backup, which had carried its
   own copy since the undici behaviour first bit it.
 
+- **`retryForever` retries a unit of work until it succeeds**, backing off from
+  15s, doubling to a 120s ceiling, with no attempt cap. `ManagedContainer`
+  takes it as `readinessRetry`, off by default — throwing once stays the right
+  shape for a plugin that reports and waits for a human.
+
+  Set it where nobody may be available to restart the plugin. On a boat that
+  human can be weeks away, so "give up and report" is the wrong terminal state
+  for a transient boot race: the plugin should still be trying when someone
+  finally looks at it. Each attempt re-runs `start()` whole — `ensureRunning`
+  is idempotent, and the address is re-resolved every time because a container
+  that only just came up may bind a different host port.
+
+  Exported standalone as well as wired into `ManagedContainer`, because the
+  same policy applies to work this library knows nothing about — a plugin
+  pointed at a service it does not manage retries the same way.
+
+  Two details that are load-bearing rather than incidental:
+
+  - **Each attempt is serialized, not the whole loop.** A retry sleeping
+    between attempts must not hold the lifecycle lock, or `stop()` would queue
+    behind a backoff that never ends and the plugin could not be shut down.
+  - **The backoff timer is `unref`'d.** A loop that never gives up will almost
+    always have a pending timer at shutdown, and a ref'd one would keep the
+    Signal K process alive waiting to retry something nobody is listening to.
+
+  Cancellation propagates rather than retrying: a `cancelled`
+  `ContainerHelperError` ends the loop, since retrying it would outlive the
+  stop that caused it. Both the per-call signal and `readinessRetry.signal` are
+  honoured, and an abort during a backoff settles immediately instead of
+  waiting the delay out — otherwise a `stop()` mid-retry would stall for up to
+  the full ceiling.
+
+  A later lifecycle operation retires a running loop: a `start()` still
+  retrying an old tag stands down once `applyUpdate()` or `stop()` runs, rather
+  than calling `ensureRunning` with the image the operator just moved away
+  from.
+
+- **New error code `invalid-option`**, for options that cannot produce sane
+  behaviour — currently a non-finite or negative `retryForever` delay bound,
+  which `setTimeout` would otherwise turn into a hot spin against the container
+  runtime.
+
 # v0.4.3
 
 - **`SelfDeploymentResult` is mirrored in full**, and `SelfDeploymentStatus`

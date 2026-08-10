@@ -16,6 +16,8 @@ export { AdoptedContainer } from "./adopted-container.js";
 export type { AdoptedContainerOptions } from "./adopted-container.js";
 export { buildVersionSource } from "./version-source.js";
 export type { VersionSourceSpec } from "./version-source.js";
+export { retryForever, anySignal } from "./retry.js";
+export type { RetryForeverOptions } from "./retry.js";
 export { fetchWithTimeout, waitForHttpReady, probeHttpHealth } from "./http.js";
 export type {
   FetchLike,

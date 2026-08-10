@@ -13,6 +13,7 @@ import {
   type VersionSourceSpec,
 } from "./version-source.js";
 import { waitForHttpReady, type FetchLike } from "./http.js";
+import { anySignal, retryForever, type RetryForeverOptions } from "./retry.js";
 import {
   ContainerHelperError,
   errMsg,
@@ -77,6 +78,21 @@ export interface ManagedContainerOptions {
   managerPollIntervalMs?: number;
   /** HTTP readiness of the app inside the container (optional). */
   readiness?: ReadinessOptions;
+  /**
+   * Retry the whole bring-up indefinitely instead of throwing on the first
+   * failure. Off by default: throwing once is the right shape for a plugin
+   * that reports and waits for a human.
+   *
+   * Set it when nobody may be available to restart the plugin — the boat case,
+   * where a transient boot race would otherwise leave the container down for
+   * weeks. `start()` then resolves only on success or rejects on cancellation,
+   * so pair it with `signal` and report progress via `onAttemptFailed`.
+   *
+   * Each attempt re-runs `start()` whole: `ensureRunning` is idempotent, and
+   * the address is re-resolved every time because a container that only just
+   * came up may bind a different host port.
+   */
+  readinessRetry?: RetryForeverOptions;
   /** Register with signalk-container's update-detection service (optional). */
   updates?: ManagedUpdateOptions;
   /** Passed through to ensureRunning/recreate (onVolumeIssue, logs, …). */
@@ -166,6 +182,12 @@ export class ManagedContainer {
    * Every consumer plugin had built its own lock for this; it belongs here.
    */
   private chain: Promise<unknown> = Promise.resolve();
+  /**
+   * Bumped by every lifecycle operation. A retrying `start()` captures the
+   * value it began with and stands down once it no longer matches, so a stop
+   * or an update retires the loop instead of racing it.
+   */
+  private lifecycle = 0;
 
   constructor(options: ManagedContainerOptions) {
     this.options = options;
@@ -284,7 +306,33 @@ export class ManagedContainer {
    * `startSafely` in a synchronous plugin.start().
    */
   async start(tag?: string, options?: OperationOptions): Promise<StartResult> {
-    return this.serialize(() => this.startInner(tag, options?.signal));
+    const retry = this.options.readinessRetry;
+    if (!retry) {
+      return this.serialize(() => this.startInner(tag, options?.signal));
+    }
+    // Compose rather than choose: `readinessRetry.signal` is the instance-wide
+    // kill switch and `options.signal` cancels this call, so honouring only
+    // one silently ignores whichever the caller did not pass here.
+    const signal = anySignal([options?.signal, retry.signal]);
+    // A retry loop outlives the call that started it, so a later operation
+    // must be able to retire it. Without this, a start() still retrying an old
+    // tag keeps calling ensureRunning with that tag after applyUpdate() moved
+    // the container to a new one — silently reverting the operator's update.
+    const generation = ++this.lifecycle;
+    return retryForever(
+      () =>
+        this.serialize(() => {
+          if (generation !== this.lifecycle) {
+            throw new ContainerHelperError(
+              "cancelled",
+              "Superseded by a newer lifecycle operation.",
+              true,
+            );
+          }
+          return this.startInner(tag, signal);
+        }),
+      { ...retry, signal },
+    );
   }
 
   private async startInner(
@@ -478,6 +526,8 @@ export class ManagedContainer {
    * instantly without a pull. Never throws.
    */
   async stop(): Promise<void> {
+    // Retires any retry loop still running; see the `lifecycle` field.
+    this.lifecycle++;
     return this.serialize(() => this.stopInner());
   }
 
@@ -516,6 +566,9 @@ export class ManagedContainer {
     tag: string,
     options?: OperationOptions,
   ): Promise<{ tag: string }> {
+    // A pending retry of the previous tag must not outlive this update and
+    // restart the container on the image the operator just moved away from.
+    this.lifecycle++;
     return this.serialize(() => this.applyUpdateInner(tag, options?.signal));
   }
 

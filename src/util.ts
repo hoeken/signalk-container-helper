@@ -85,7 +85,8 @@ export type ContainerHelperErrorCode =
   | "address-unresolved"
   | "not-ready"
   | "recreate-limbo"
-  | "cancelled";
+  | "cancelled"
+  | "invalid-option";
 
 /**
  * Typed error thrown by ManagedContainer/AdoptedContainer operations.
