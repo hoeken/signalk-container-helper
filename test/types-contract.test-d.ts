@@ -22,6 +22,8 @@ import type {
   VersionSourceResult as CanonicalVersionSourceResult,
   UpdateServiceApi as CanonicalUpdateServiceApi,
   NofileLimits as CanonicalNofileLimits,
+  SelfDeploymentResult as CanonicalSelfDeploymentResult,
+  SelfDeploymentStatus as CanonicalSelfDeploymentStatus,
 } from "signalk-container/types";
 import type {
   ConsumerManifest,
@@ -39,6 +41,8 @@ import type {
   VersionSourceResult,
   UpdateServiceApi,
   NofileLimits,
+  SelfDeploymentResult,
+  SelfDeploymentStatus,
 } from "../src/types.js";
 
 // Exact structural equality: resolves to `true` only when A and B are
@@ -99,6 +103,16 @@ export type _TagKind = Expect<Equals<TagKind, CanonicalTagKind>>;
 // consumers can feature-detect the probe without redeclaring the type — a
 // gap here is what pushes a plugin back to hand-written interfaces.
 export type _NofileLimits = Expect<Equals<NofileLimits, CanonicalNofileLimits>>;
+// The doctor's verdict. This mirror carried only status/remediation behind an
+// index signature, so `isContainerized` — the field the probe exists for —
+// typed as `unknown` while the interface looked complete. Nothing failed,
+// because nothing asserted it (see #27).
+export type _SelfDeploymentStatus = Expect<
+  Equals<SelfDeploymentStatus, CanonicalSelfDeploymentStatus>
+>;
+export type _SelfDeploymentResult = Expect<
+  Equals<SelfDeploymentResult, CanonicalSelfDeploymentResult>
+>;
 export type _VersionSourceResult = Expect<
   Equals<VersionSourceResult, CanonicalVersionSourceResult>
 >;

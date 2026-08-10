@@ -446,13 +446,75 @@ export type SelfDeploymentStatus =
   | "no-runtime"
   | "socket-unreachable"
   | "permission-denied"
-  | "self-id-unresolved";
+  | "self-id-unresolved"
+  | "cgroup-controllers-incomplete";
 
+/**
+ * Verdict from `DoctorApi.selfDeployment()`.
+ *
+ * Mirrored in full. It previously carried only `status`/`remediation` behind
+ * an index signature, which typed every other field as `unknown` while
+ * looking complete — a consumer reading `isContainerized` (the field the
+ * probe exists for) got no error and no value.
+ */
 export interface SelfDeploymentResult {
+  /** True when /.dockerenv, /run/.containerenv, or `$container` is set. */
+  isContainerized: boolean;
+  binary: {
+    name: RuntimeName | null;
+    path: string | null;
+    version: string | null;
+  };
+  daemon: {
+    reachable: boolean;
+    rootless: boolean | null;
+    socketPath: string | null;
+    error: string | null;
+  };
+  env: {
+    DOCKER_HOST: string | null;
+    CONTAINER_HOST: string | null;
+    XDG_RUNTIME_DIR: string | null;
+  };
+  selfId: {
+    value: string | null;
+    source: "env" | "hostname" | "cgroup" | null;
+  };
+  cgroupControllers: {
+    available: string[] | null;
+    missing: string[];
+    kernelDisabledMemory: boolean;
+  };
+  containerStorage: {
+    storagePath: string | null;
+    fstype: string | null;
+    idmapHazard: boolean;
+    advice: string[];
+  } | null;
+  linger: {
+    user: string | null;
+    enabled: boolean;
+    advice: string[];
+  } | null;
+  devicePassthrough?: {
+    issues: Array<{
+      container: string;
+      entry: string;
+      hostPath: string;
+      action: "skipped" | "optimistic" | "unresolved" | "group-skipped";
+      reason: string;
+    }>;
+    advice: string[];
+  } | null;
+  networkDns: {
+    backend: string | null;
+    helperPath: string | null;
+    dnsBroken: boolean;
+    advice: string[];
+  } | null;
   status: SelfDeploymentStatus;
   /** Copy-pasteable remediation lines for failure statuses. */
-  remediation?: string[];
-  [key: string]: unknown;
+  remediation: string[];
 }
 
 export interface SetupSnippetResult {
