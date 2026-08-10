@@ -10,6 +10,7 @@ export type {
   RouterLike,
   ResponseLike,
   UpdateRoutesOptions,
+  OperationOptions,
 } from "./managed-container.js";
 export { AdoptedContainer } from "./adopted-container.js";
 export type { AdoptedContainerOptions } from "./adopted-container.js";
@@ -25,6 +26,7 @@ export type {
 } from "./http.js";
 export {
   startSafely,
+  throwIfAborted,
   errMsg,
   isValidImageTag,
   IMAGE_TAG_PATTERN,

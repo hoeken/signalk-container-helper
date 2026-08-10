@@ -40,6 +40,13 @@ export interface WaitForHttpReadyOptions {
   /** Per-request timeout. Default 2_000. */
   requestTimeoutMs?: number;
   fetchImpl?: FetchLike;
+  /**
+   * Stops polling when aborted, throwing the last transport error (or an
+   * abort error if none yet). Without it a caller that has given up still
+   * waits out the full `maxMs` — up to a minute of pointless requests against
+   * a container it is about to stop.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -56,10 +63,16 @@ export async function waitForHttpReady(
     intervalMs = 1_000,
     requestTimeoutMs = 2_000,
     fetchImpl,
+    signal,
   } = options;
   const deadline = Date.now() + maxMs;
   let lastErr: unknown;
   for (;;) {
+    if (signal?.aborted) {
+      throw lastErr instanceof Error
+        ? lastErr
+        : new Error(`Readiness polling aborted for ${url}: ${errMsg(lastErr)}`);
+    }
     try {
       const res = await fetchWithTimeout(url, {
         timeoutMs: requestTimeoutMs,
@@ -70,7 +83,7 @@ export async function waitForHttpReady(
     } catch (err) {
       lastErr = err;
     }
-    if (Date.now() >= deadline) break;
+    if (Date.now() >= deadline || signal?.aborted) break;
     await sleep(intervalMs);
   }
   throw new Error(

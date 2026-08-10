@@ -1,3 +1,31 @@
+# Unreleased
+
+- **`start()` and `applyUpdate()` accept an `AbortSignal`** via a new optional
+  `OperationOptions` argument. (`stop()` does not: it has nothing cancellable,
+  so accepting one would promise what it cannot deliver.) An aborted operation rejects with
+  `ContainerHelperError` code `cancelled`, flagged `reported` so `startSafely`
+  logs it rather than surfacing a plugin error for a stop the caller asked for.
+
+  Cancellation is **cooperative**: signalk-container's `ensureRunning`,
+  `recreate` and `stop` take no signal (only its one-off job API does), so a
+  call already in flight runs to completion. The signal cancels everything
+  around it — the manager-global wait, the drift probe, readiness polling, and
+  each step boundary. Those are the waits with minute-scale deadlines, and
+  cancelling them is what stops an abandoned start from continuing to work
+  against a container the caller has already torn down.
+
+  `waitForContainerManager` and `waitForHttpReady` take a `signal` too, so
+  their poll loops exit promptly instead of running out their full budget.
+
+- **Lifecycle operations are serialized per `ManagedContainer`.** An
+  overlapping `start` and `stop` — a plugin restarted while its first start is
+  still waiting on readiness — now queue instead of interleaving, so `stop`
+  cannot land between `ensureRunning` and the readiness poll and leave the
+  plugin believing it started something it just removed. Callers that already
+  hold their own lifecycle lock see no behaviour change.
+
+  Every consumer plugin had built this itself; it belongs in the library.
+
 # v0.3.1
 
 Maintenance release. One small change reaches the published package; the rest of
