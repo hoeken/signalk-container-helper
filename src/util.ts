@@ -30,7 +30,8 @@ export type ContainerHelperErrorCode =
   | "invalid-tag"
   | "address-unresolved"
   | "not-ready"
-  | "recreate-limbo";
+  | "recreate-limbo"
+  | "cancelled";
 
 /**
  * Typed error thrown by ManagedContainer/AdoptedContainer operations.
@@ -74,4 +75,29 @@ export function startSafely(app: AppLike, fn: () => Promise<unknown>): void {
     }
     app.setPluginError(`Startup failed: ${errMsg(err)}`);
   });
+}
+
+/**
+ * Throws if `signal` has been aborted.
+ *
+ * Called after every await inside a long container operation. This is the
+ * whole of the helper's cancellation: signalk-container exposes a signal only
+ * on its one-off job API, so `ensureRunning`/`recreate`/`stop` cannot be
+ * interrupted mid-call. Checking between steps is what stops an abandoned
+ * operation from continuing — through the manager-global wait, the drift
+ * probe and readiness polling — against a container the caller has already
+ * torn down.
+ *
+ * `reported: true` because a cancellation is the caller's own doing: it asked
+ * for the stop. Surfacing "Startup failed: cancelled" in the plugin error box
+ * would be noise, so startSafely logs it at debug instead.
+ */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new ContainerHelperError(
+      "cancelled",
+      "Operation cancelled by the caller.",
+      true,
+    );
+  }
 }

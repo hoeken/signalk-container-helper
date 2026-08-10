@@ -18,6 +18,13 @@ export interface WaitForManagerOptions {
   intervalMs?: number;
   /** Progress callback, e.g. to update the plugin status line per phase. */
   onWaiting?: (phase: "manager" | "runtime") => void;
+  /**
+   * Abandons the wait when aborted, returning what has been found so far
+   * rather than throwing — the caller decides whether an abort is an error.
+   * Without it, a plugin stopped during startup keeps polling for the manager
+   * until the full timeout elapses.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ManagerWaitResult {
@@ -50,11 +57,11 @@ export interface ManagerWaitResult {
 export async function waitForContainerManager(
   options: WaitForManagerOptions = {},
 ): Promise<ManagerWaitResult> {
-  const { timeoutMs = 60_000, intervalMs = 500, onWaiting } = options;
+  const { timeoutMs = 60_000, intervalMs = 500, onWaiting, signal } = options;
   const deadline = Date.now() + timeoutMs;
 
   let manager = getContainerManager();
-  while (!manager && Date.now() < deadline) {
+  while (!manager && Date.now() < deadline && !signal?.aborted) {
     onWaiting?.("manager");
     await sleep(intervalMs);
     manager = getContainerManager();
@@ -70,7 +77,11 @@ export async function waitForContainerManager(
       await Promise.race([manager.whenReady(), sleep(remaining)]);
     } else {
       // Pre-1.6.0 fallback: poll until detection settles or the deadline hits.
-      while (!manager.getRuntime() && Date.now() < deadline) {
+      while (
+        !manager.getRuntime() &&
+        Date.now() < deadline &&
+        !signal?.aborted
+      ) {
         await sleep(intervalMs);
       }
     }

@@ -40,6 +40,15 @@ export interface WaitForHttpReadyOptions {
   /** Per-request timeout. Default 2_000. */
   requestTimeoutMs?: number;
   fetchImpl?: FetchLike;
+  /**
+   * Stops polling when aborted, throwing an `AbortError` (a `DOMException`,
+   * matching what `fetch` itself throws) rather than the deadline error — a
+   * caller that cancelled must be able to tell "I stopped this" from "the app
+   * never came up". Without it, a caller that has given up still waits out
+   * the full `maxMs`: up to a minute of pointless requests against a
+   * container it is about to stop.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -56,10 +65,23 @@ export async function waitForHttpReady(
     intervalMs = 1_000,
     requestTimeoutMs = 2_000,
     fetchImpl,
+    signal,
   } = options;
   const deadline = Date.now() + maxMs;
   let lastErr: unknown;
+  // Aborting must NOT fall through to the deadline message below: a caller
+  // that cancelled needs to tell "I stopped this" from "the app never came
+  // up", and reporting the latter would put a readiness failure on screen for
+  // a container it deliberately tore down.
+  const aborted = () =>
+    new DOMException(
+      `Readiness polling aborted for ${url}${
+        lastErr === undefined ? "" : ` (last error: ${errMsg(lastErr)})`
+      }`,
+      "AbortError",
+    );
   for (;;) {
+    if (signal?.aborted) throw aborted();
     try {
       const res = await fetchWithTimeout(url, {
         timeoutMs: requestTimeoutMs,
@@ -70,6 +92,7 @@ export async function waitForHttpReady(
     } catch (err) {
       lastErr = err;
     }
+    if (signal?.aborted) throw aborted();
     if (Date.now() >= deadline) break;
     await sleep(intervalMs);
   }

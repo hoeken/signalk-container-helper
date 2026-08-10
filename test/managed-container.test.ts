@@ -671,3 +671,109 @@ describe("ManagedContainer.registerUpdateRoutes", () => {
     );
   });
 });
+
+describe("cancellation", () => {
+  it("refuses to start when the signal is already aborted", async () => {
+    const { container } = makeContainer();
+    installManager(makeManager());
+
+    await expect(
+      container.start("1.0.0", { signal: AbortSignal.abort() }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("does not call ensureRunning once aborted", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+
+    await expect(
+      container.start("1.0.0", { signal: AbortSignal.abort() }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(manager.ensureRunning).not.toHaveBeenCalled();
+  });
+
+  it("marks the cancellation as already reported", async () => {
+    // startSafely logs a reported error at debug instead of surfacing it via
+    // setPluginError — a stop the caller asked for is not a startup failure.
+    const { container, app } = makeContainer();
+    installManager(makeManager());
+
+    const err = await container
+      .start("1.0.0", { signal: AbortSignal.abort() })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ContainerHelperError);
+    expect((err as ContainerHelperError).reported).toBe(true);
+    expect(app.setPluginError).not.toHaveBeenCalled();
+  });
+
+  it("stops mid-start when aborted between steps", async () => {
+    // ensureRunning itself is not interruptible (signalk-container takes no
+    // signal there), so the abort lands at the next step boundary — before
+    // readiness polling, which is where the minutes would otherwise go.
+    const controller = new AbortController();
+    const manager = makeManager();
+    manager.ensureRunning.mockImplementation(async () => {
+      controller.abort();
+    });
+    installManager(manager);
+    const { container } = makeContainer({
+      readiness: { port: 9000, maxMs: 60_000 },
+    });
+
+    await expect(
+      container.start("1.0.0", { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(manager.ensureRunning).toHaveBeenCalledOnce();
+  });
+
+  it("leaves start unaffected when no signal is passed", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+
+    const result = await container.start("1.0.0");
+    expect(result.tag).toBe("1.0.0");
+    expect(manager.ensureRunning).toHaveBeenCalledOnce();
+  });
+});
+
+describe("serialization", () => {
+  it("runs an overlapping start and stop in order", async () => {
+    // Without the chain both interleave against the same container: stop can
+    // land between ensureRunning and readiness, leaving the plugin believing
+    // it started something it just tore down.
+    const order: string[] = [];
+    const manager = makeManager();
+    manager.ensureRunning.mockImplementation(async () => {
+      order.push("start:begin");
+      await new Promise((r) => setTimeout(r, 20));
+      order.push("start:end");
+    });
+    manager.stop.mockImplementation(async () => {
+      order.push("stop");
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+
+    const started = container.start("1.0.0");
+    const stopped = container.stop();
+    await Promise.all([started, stopped]);
+
+    expect(order).toEqual(["start:begin", "start:end", "stop"]);
+  });
+
+  it("does not wedge the chain when an operation rejects", async () => {
+    const manager = makeManager();
+    manager.ensureRunning.mockRejectedValueOnce(new Error("boom"));
+    installManager(manager);
+    const { container } = makeContainer();
+
+    await expect(container.start("1.0.0")).rejects.toThrow("boom");
+    // The next operation must still run rather than inheriting the rejection.
+    await expect(container.start("1.0.0")).resolves.toMatchObject({
+      tag: "1.0.0",
+    });
+  });
+});

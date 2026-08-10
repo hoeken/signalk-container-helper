@@ -440,6 +440,7 @@ Adopt these even where you don't use the components:
 | `waitForHttpReady(url, opts)`   | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
 | `probeHttpHealth(url, opts)`    | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
 | `fetchWithTimeout(url, opts)`   | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
+| `throwIfAborted(signal)`        | Throw `ContainerHelperError` `cancelled` if the signal has fired — the check the lifecycle methods run between steps                                                                                                                                                                     |
 | `startSafely(app, fn)`          | Sync wrapper for async plugin startup — Signal K does not await `start()`                                                                                                                                                                                                                |
 | `isValidImageTag(tag)`          | Tag guard (`IMAGE_TAG_PATTERN`)                                                                                                                                                                                                                                                          |
 | `errMsg(err)`                   | Normalize unknown errors to strings                                                                                                                                                                                                                                                      |
@@ -450,17 +451,60 @@ Adopt these even where you don't use the components:
 
 `ContainerHelperError.code` values thrown by `start()` / `applyUpdate()`:
 
-| Code                  | Meaning                                                                        |
-| --------------------- | ------------------------------------------------------------------------------ |
-| `manager-unavailable` | signalk-container never published its API within the budget                    |
-| `no-runtime`          | Manager present, but no podman/docker was detected                             |
-| `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                       |
-| `address-unresolved`  | No host:port could be found for the readiness port                             |
-| `not-ready`           | The app never answered its health URL before the deadline                      |
-| `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies |
+| Code                  | Meaning                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `manager-unavailable` | signalk-container never published its API within the budget                                               |
+| `no-runtime`          | Manager present, but no podman/docker was detected                                                        |
+| `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                                                  |
+| `address-unresolved`  | No host:port could be found for the readiness port                                                        |
+| `not-ready`           | The app never answered its health URL before the deadline                                                 |
+| `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                            |
+| `cancelled`           | The `AbortSignal` passed to the operation fired (see [Cancelling an operation](#cancelling-an-operation)) |
 
 All errors thrown by the helpers have already been surfaced through
 `app.setPluginError` (`reported: true`), so `startSafely` won't report them twice.
+
+### Cancelling an operation
+
+`start()` and `applyUpdate()` take an optional second argument carrying an
+`AbortSignal`:
+
+```ts
+const abort = new AbortController();
+
+// in start():
+startSafely(app, () =>
+  container.start(settings.imageTag, { signal: abort.signal }),
+);
+
+// in stop():
+abort.abort(); // unblocks an in-flight start
+await container.stop();
+```
+
+`stop()` takes no signal: it has nothing cancellable — an unregister call and
+one uninterruptible `manager.stop` — so accepting one would promise what it
+cannot deliver. It is still serialized against the other operations.
+
+An aborted operation rejects with `ContainerHelperError` code `cancelled`,
+already flagged `reported`, so `startSafely` logs it at debug rather than
+putting a plugin error on screen for something you asked for.
+
+**Cancellation is cooperative, not pre-emptive.** signalk-container's
+`ensureRunning`, `recreate` and `stop` take no signal — only its one-off job
+API does — so a call already in flight runs to completion. What the signal
+cancels is everything around it: waiting for the manager global, the drift
+probe, readiness polling, and each step boundary. That is where the time
+actually goes, since those are the polls with deadlines measured in minutes,
+and it is what stops an abandoned start from continuing to work against a
+container you have already torn down.
+
+Operations are also **serialized per instance**. An overlapping `start` and
+`stop` — a plugin restarted while its first start is still waiting on
+readiness — queue rather than interleave, so `stop` can no longer land between
+`ensureRunning` and the readiness poll and leave the plugin believing it
+started something it just removed. Callers that already hold their own
+lifecycle lock see no change.
 
 ### Version compatibility
 

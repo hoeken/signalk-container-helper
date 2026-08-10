@@ -13,7 +13,12 @@ import {
   type VersionSourceSpec,
 } from "./version-source.js";
 import { waitForHttpReady, type FetchLike } from "./http.js";
-import { ContainerHelperError, errMsg, isValidImageTag } from "./util.js";
+import {
+  ContainerHelperError,
+  errMsg,
+  isValidImageTag,
+  throwIfAborted,
+} from "./util.js";
 
 export interface ReadinessOptions {
   /**
@@ -82,6 +87,25 @@ export interface ManagedContainerOptions {
   fetchImpl?: FetchLike;
 }
 
+/** Per-call options shared by the long-running lifecycle operations. */
+export interface OperationOptions {
+  /**
+   * Cancels the operation.
+   *
+   * **Cooperative, not pre-emptive.** signalk-container's `ensureRunning`,
+   * `recreate` and `stop` take no signal — only its one-off job API does — so
+   * a call already in flight runs to completion. What this cancels is
+   * everything around it: waiting for the manager global, the drift probe,
+   * readiness polling, and each step boundary. In practice that is where the
+   * time goes, since those are the polls with deadlines measured in minutes.
+   *
+   * Aborted operations reject with `ContainerHelperError` code `"cancelled"`,
+   * already flagged as reported so `startSafely` logs it rather than putting
+   * a plugin error on screen for something the caller asked for.
+   */
+  signal?: AbortSignal;
+}
+
 export interface StartResult {
   manager: ContainerManagerApi;
   /** The resolved tag that was started. */
@@ -135,9 +159,29 @@ export class ManagedContainer {
   address: string | null = null;
 
   private updatesRegistered = false;
+  /**
+   * Serializes the lifecycle operations. Without it an overlapping
+   * start/stop — a plugin restarted while its first start is still waiting on
+   * readiness — interleaves ensureRunning and stop against the same container.
+   * Every consumer plugin had built its own lock for this; it belongs here.
+   */
+  private chain: Promise<unknown> = Promise.resolve();
 
   constructor(options: ManagedContainerOptions) {
     this.options = options;
+  }
+
+  /**
+   * Queue `fn` behind any operation already in flight. Both settlement paths
+   * advance the chain, so one rejection cannot wedge every later call.
+   */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(fn, fn);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   private get app(): AppLike {
@@ -239,7 +283,14 @@ export class ManagedContainer {
    * (already reported via setPluginError) on fatal conditions; pair with
    * `startSafely` in a synchronous plugin.start().
    */
-  async start(tag?: string): Promise<StartResult> {
+  async start(tag?: string, options?: OperationOptions): Promise<StartResult> {
+    return this.serialize(() => this.startInner(tag, options?.signal));
+  }
+
+  private async startInner(
+    tag: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<StartResult> {
     const {
       name,
       image,
@@ -249,15 +300,18 @@ export class ManagedContainer {
       managerPollIntervalMs = 500,
     } = this.options;
 
+    throwIfAborted(signal);
     this.status("Waiting for signalk-container plugin...");
     const { manager, runtime } = await waitForContainerManager({
       timeoutMs: managerTimeoutMs,
       intervalMs: managerPollIntervalMs,
+      signal,
       onWaiting: (phase) => {
         if (phase === "runtime")
           this.status("Waiting for container runtime detection...");
       },
     });
+    throwIfAborted(signal);
     if (!manager) {
       this.fail(
         "manager-unavailable",
@@ -285,12 +339,21 @@ export class ManagedContainer {
     if (typeof manager.recreate === "function") {
       try {
         const found = this.matchInfo(await manager.listContainers());
+        throwIfAborted(signal);
         if (found && found.image !== desiredImage) {
           this.status(`Recreating ${found.image} → ${desiredImage}...`);
           await manager.recreate(name, config, ensureOptions);
           reconciled = true;
         }
       } catch (probeErr) {
+        // A cancellation is not a probe failure — it must propagate, or the
+        // abandoned start would fall through and ensureRunning anyway.
+        if (
+          probeErr instanceof ContainerHelperError &&
+          probeErr.code === "cancelled"
+        ) {
+          throw probeErr;
+        }
         this.app.debug(
           `self-heal probe failed (non-fatal): ${errMsg(probeErr)}`,
         );
@@ -298,16 +361,18 @@ export class ManagedContainer {
     }
 
     if (!reconciled) {
+      throwIfAborted(signal);
       this.status(`Starting ${desiredImage}...`);
       await manager.ensureRunning(name, config, ensureOptions);
     }
+    throwIfAborted(signal);
     this.lastStartedTag = resolved;
 
     this.registerUpdates(manager);
 
     this.address = null;
     if (this.options.readiness) {
-      this.address = await this.awaitReadiness(resolved);
+      this.address = await this.awaitReadiness(resolved, signal);
     }
 
     return { manager, tag: resolved, address: this.address };
@@ -338,7 +403,10 @@ export class ManagedContainer {
     }
   }
 
-  private async awaitReadiness(tag: string): Promise<string> {
+  private async awaitReadiness(
+    tag: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const readiness = this.options.readiness!;
     const addr = await this.resolveAddress(readiness.port);
     if (!addr) {
@@ -356,8 +424,13 @@ export class ManagedContainer {
         intervalMs: readiness.intervalMs,
         requestTimeoutMs: readiness.requestTimeoutMs,
         fetchImpl: this.options.fetchImpl,
+        signal,
       });
     } catch (err) {
+      // A cancelled readiness wait is not a readiness failure — reporting it
+      // as one would put "never became ready" in the plugin error box for a
+      // container the caller deliberately abandoned.
+      throwIfAborted(signal);
       this.fail(
         "not-ready",
         `${this.options.image}:${tag} started but ${url} never became ready: ${errMsg(err)}`,
@@ -405,6 +478,10 @@ export class ManagedContainer {
    * instantly without a pull. Never throws.
    */
   async stop(): Promise<void> {
+    return this.serialize(() => this.stopInner());
+  }
+
+  private async stopInner(): Promise<void> {
     this.address = null;
     const manager = this.manager ?? getContainerManager();
     if (!manager) return;
@@ -435,7 +512,18 @@ export class ManagedContainer {
    * Returns the resolved tag. When readiness is configured the address is
    * re-resolved afterwards (non-fatal on failure).
    */
-  async applyUpdate(tag: string): Promise<{ tag: string }> {
+  async applyUpdate(
+    tag: string,
+    options?: OperationOptions,
+  ): Promise<{ tag: string }> {
+    return this.serialize(() => this.applyUpdateInner(tag, options?.signal));
+  }
+
+  private async applyUpdateInner(
+    tag: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ tag: string }> {
+    throwIfAborted(signal);
     const manager = this.requireManager();
     const resolved = this.resolveTag(tag);
     const { name, image, buildConfig, ensureOptions } = this.options;
