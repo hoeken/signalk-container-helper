@@ -153,8 +153,10 @@ export function StatusCard({
 /**
  * Collapsed-by-default section for advanced/rare settings. A real <button>
  * so keyboard users can toggle with Enter/Space and screen readers announce
- * expanded state; the style resets the default button chrome so it still
- * reads as a section title.
+ * expanded state. sectionToggle resets the default button chrome but keeps a
+ * darker colour than a plain heading, so it reads as a control — at
+ * sectionTitle's grey it did not, and the settings inside looked absent
+ * rather than collapsed (dirkwa/signalk-questdb#123).
  */
 export function CollapsibleSection({
   title,
@@ -171,25 +173,12 @@ export function CollapsibleSection({
       <button
         type="button"
         aria-expanded={open}
-        style={{
-          ...S.sectionTitle,
-          cursor: "pointer",
-          userSelect: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          width: "100%",
-          textAlign: "left",
-          background: "none",
-          border: "none",
-          padding: 0,
-        }}
+        style={{ ...S.sectionTitle, ...S.sectionToggle }}
         onClick={() => setOpen(!open)}
       >
         <span
           style={{
-            fontSize: 10,
-            transition: "transform 0.15s",
+            ...S.sectionMarker,
             transform: open ? "rotate(90deg)" : "rotate(0deg)",
           }}
         >
