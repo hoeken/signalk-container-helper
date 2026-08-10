@@ -1,4 +1,4 @@
-# Unreleased
+# v0.4.1
 
 - **`CollapsibleSection` headers read as controls.** The header button
   inherited `sectionTitle`'s muted `#888`, so a collapsed section looked like
