@@ -438,6 +438,8 @@ Adopt these even where you don't use the components:
 | `getContainerManager()`         | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
 | `waitForContainerManager(opts)` | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
 | `waitForHttpReady(url, opts)`   | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
+| `retryForever(fn, opts)`        | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
+| `anySignal(signals)`            | Compose several `AbortSignal`s into one that aborts when any does (`undefined` when none are given)                                                                                                                                                                                      |
 | `probeHttpHealth(url, opts)`    | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
 | `fetchWithTimeout(url, opts)`   | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
 | `throwIfAborted(signal)`        | Throw `ContainerHelperError` `cancelled` if the signal has fired — the check the lifecycle methods run between steps                                                                                                                                                                     |
@@ -451,15 +453,16 @@ Adopt these even where you don't use the components:
 
 `ContainerHelperError.code` values thrown by `start()` / `applyUpdate()`:
 
-| Code                  | Meaning                                                                                                   |
-| --------------------- | --------------------------------------------------------------------------------------------------------- |
-| `manager-unavailable` | signalk-container never published its API within the budget                                               |
-| `no-runtime`          | Manager present, but no podman/docker was detected                                                        |
-| `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                                                  |
-| `address-unresolved`  | No host:port could be found for the readiness port                                                        |
-| `not-ready`           | The app never answered its health URL before the deadline                                                 |
-| `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                            |
-| `cancelled`           | The `AbortSignal` passed to the operation fired (see [Cancelling an operation](#cancelling-an-operation)) |
+| Code                  | Meaning                                                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manager-unavailable` | signalk-container never published its API within the budget                                                                                                               |
+| `no-runtime`          | Manager present, but no podman/docker was detected                                                                                                                        |
+| `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                                                                                                                  |
+| `address-unresolved`  | No host:port could be found for the readiness port                                                                                                                        |
+| `not-ready`           | The app never answered its health URL before the deadline                                                                                                                 |
+| `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                                                                                            |
+| `cancelled`           | The `AbortSignal` passed to the operation fired, or a newer lifecycle operation superseded a retrying `start()` (see [Cancelling an operation](#cancelling-an-operation)) |
+| `invalid-option`      | An option could not produce sane behaviour — e.g. a non-finite or negative `retryForever` delay bound                                                                     |
 
 All errors thrown by the helpers have already been surfaced through
 `app.setPluginError` (`reported: true`), so `startSafely` won't report them twice.
@@ -505,6 +508,54 @@ readiness — queue rather than interleave, so `stop` can no longer land between
 `ensureRunning` and the readiness poll and leave the plugin believing it
 started something it just removed. Callers that already hold their own
 lifecycle lock see no change.
+
+### Retrying forever
+
+`start()` throws once when bring-up fails, which is right for a plugin that
+reports the problem and waits for a human. Where no human may be coming, pass
+`readinessRetry`:
+
+```ts
+const container = new ManagedContainer({
+  // …
+  readinessRetry: {
+    onAttemptFailed: (err, nextDelayMs) =>
+      app.setPluginError(
+        `Backup server unreachable: ${errMsg(err)} — retrying in ${Math.round(nextDelayMs / 1000)}s`,
+      ),
+  },
+});
+
+// Resolves only on success; rejects on cancellation, on an invalid delay
+// bound, or if your onAttemptFailed callback itself throws.
+const { address } = await container.start(tag, { signal });
+```
+
+`start()` then retries the whole bring-up — 15s doubling to a 120s ceiling,
+indefinitely. A container that lost a boot race should not stay down until
+someone restarts the plugin; on a boat that can be weeks. Each attempt re-runs
+`start()` whole, which is safe because `ensureRunning` is idempotent, and
+necessary because a container that only just came up may bind a different host
+port than the last attempt saw.
+
+Use `onAttemptFailed` to keep the status line honest — the returned promise
+stays pending either way, so without it an operator cannot tell "still
+retrying" from "stuck".
+
+Pair it with a `signal`: cancellation is the only exit besides success. Both
+the per-call `signal` and `readinessRetry.signal` are honoured — aborting
+either ends the loop, and an abort during a backoff settles immediately rather
+than waiting the delay out.
+
+Each attempt is serialized individually rather than the loop as a whole, so a
+retry sleeping between attempts never blocks `stop()`. A later lifecycle
+operation also retires the loop: a `start()` still retrying an old tag stands
+down when `applyUpdate()` or `stop()` runs, instead of restarting the container
+on the image the operator just moved away from.
+
+`retryForever` is exported on its own for the same policy applied to work this
+library does not manage — an external service a plugin points at but does not
+own, for instance.
 
 ### Version compatibility
 

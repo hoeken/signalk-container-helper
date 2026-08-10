@@ -777,3 +777,144 @@ describe("serialization", () => {
     });
   });
 });
+
+describe("ManagedContainer readinessRetry", () => {
+  it("retries a failing bring-up until it succeeds", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = makeManager();
+      manager.ensureRunning
+        .mockRejectedValueOnce(new Error("boot race"))
+        .mockRejectedValueOnce(new Error("boot race"));
+      installManager(manager);
+      const onAttemptFailed = vi.fn();
+      const { container } = makeContainer({
+        readinessRetry: { minDelayMs: 1_000, maxDelayMs: 4_000 },
+      });
+      // Re-create with the spy attached (readinessRetry is read per start()).
+      container.options.readinessRetry!.onAttemptFailed = onAttemptFailed;
+
+      const started = container.start("1.0.0");
+      const settled = started.then(
+        (v) => ({ ok: true as const, v }),
+        (e: unknown) => ({ ok: false as const, e }),
+      );
+      for (let i = 0; i < 20; i++) {
+        const done = await Promise.race([
+          settled.then(() => true),
+          Promise.resolve().then(() => false),
+        ]);
+        if (done) break;
+        await vi.advanceTimersByTimeAsync(10_000);
+      }
+
+      await expect(started).resolves.toMatchObject({ tag: "1.0.0" });
+      expect(manager.ensureRunning).toHaveBeenCalledTimes(3);
+      expect(onAttemptFailed).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not hold the lock while sleeping, so stop() is not blocked", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = makeManager();
+      // Never succeeds: without per-attempt serialization the retry would own
+      // the chain forever and stop() could never run.
+      manager.ensureRunning.mockRejectedValue(new Error("always down"));
+      installManager(manager);
+      const controller = new AbortController();
+      const { container } = makeContainer({
+        readinessRetry: { minDelayMs: 1_000, maxDelayMs: 1_000 },
+      });
+
+      const started = container.start("1.0.0", { signal: controller.signal });
+      started.catch(() => undefined);
+      // Let a couple of attempts fail so the loop is mid-backoff.
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      const stopped = container.stop();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(stopped).resolves.toBeUndefined();
+      expect(manager.stop).toHaveBeenCalledWith("test-service");
+
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(started).rejects.toMatchObject({ code: "cancelled" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stands down when applyUpdate supersedes the retrying start", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = makeManager();
+      manager.ensureRunning.mockRejectedValue(new Error("down"));
+      installManager(manager);
+      const { container } = makeContainer({
+        readinessRetry: { minDelayMs: 100, maxDelayMs: 100 },
+      });
+
+      const started = container.start("OLD");
+      started.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(300);
+
+      await container.applyUpdate("NEW");
+      const before = manager.ensureRunning.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(500);
+
+      // A loop still retrying OLD would restart the container on the image the
+      // operator just moved away from — a silent revert of their update.
+      expect(manager.ensureRunning.mock.calls.length).toBe(before);
+      expect(container.lastStartedTag).toBe("NEW");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels when either the call signal or the retry signal aborts", async () => {
+    for (const which of ["call", "retry"] as const) {
+      vi.useFakeTimers();
+      try {
+        const manager = makeManager();
+        manager.ensureRunning.mockRejectedValue(new Error("down"));
+        installManager(manager);
+        const retryAbort = new AbortController();
+        const callAbort = new AbortController();
+        const { container } = makeContainer({
+          readinessRetry: {
+            minDelayMs: 100,
+            maxDelayMs: 100,
+            signal: retryAbort.signal,
+          },
+        });
+
+        const started = container.start("1.0.0", { signal: callAbort.signal });
+        const settled = started.then(
+          () => "resolved",
+          (e: { code?: string }) => e.code,
+        );
+        await vi.advanceTimersByTimeAsync(250);
+        (which === "call" ? callAbort : retryAbort).abort();
+        await vi.advanceTimersByTimeAsync(500);
+
+        await expect(settled).resolves.toBe("cancelled");
+      } finally {
+        vi.useRealTimers();
+        clearManager();
+      }
+    }
+  });
+
+  it("is off by default — a failing start still rejects once", async () => {
+    const manager = makeManager();
+    manager.ensureRunning.mockRejectedValue(new Error("boom"));
+    installManager(manager);
+    const { container } = makeContainer();
+
+    await expect(container.start("1.0.0")).rejects.toThrow("boom");
+    expect(manager.ensureRunning).toHaveBeenCalledTimes(1);
+  });
+});
