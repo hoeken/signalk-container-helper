@@ -1,3 +1,25 @@
+# Unreleased
+
+- **`errMsg` follows the `.cause` chain and flattens `AggregateError`**, so the
+  message a consumer puts on screen names the syscall instead of hiding it.
+  undici's fetch rejects with a bare `TypeError: fetch failed` and puts the
+  actionable error in `err.cause`, so a plugin polling a containerized app
+  reported `fetch failed` where it meant
+  `connect ECONNREFUSED 127.0.0.1:3010`. Node >= 20's Happy Eyeballs is worse:
+  it rejects with an `AggregateError` carrying no message of its own, which
+  rendered as the literal string `AggregateError` — no host, no port, no
+  errno.
+
+  This could not be fixed downstream. The library renders errors to strings
+  internally — `waitForHttpReady`'s deadline message, `fail()`'s reported
+  errors — before a consumer ever sees the `Error`, so the detail was gone by
+  the time it crossed the API boundary. Every internal call site benefits;
+  there is no API change.
+
+  Recursion is depth-capped at 4 and survives a cyclic `errors` array.
+  Implementation and tests ported from signalk-backup, which had carried its
+  own copy since the undici behaviour first bit it.
+
 # v0.4.3
 
 - **`SelfDeploymentResult` is mirrored in full**, and `SelfDeploymentStatus`

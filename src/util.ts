@@ -15,9 +15,63 @@ export function isValidImageTag(tag: unknown): tag is string {
   );
 }
 
-/** Normalize an unknown thrown value into a printable message. */
+/**
+ * How far to follow `.cause` / `AggregateError.errors` before giving up.
+ * Deep enough for the real chains (undici wraps twice), shallow enough that a
+ * pathological or cyclic graph cannot produce an unbounded status line.
+ */
+const MAX_CAUSE_DEPTH = 4;
+
+/**
+ * Normalize an unknown thrown value into a printable message, following the
+ * `.cause` chain and flattening `AggregateError`.
+ *
+ * The naive `err.message` loses exactly the part an operator needs. undici's
+ * fetch rejects with a bare `TypeError: fetch failed` and hides the actionable
+ * syscall in `err.cause`, so every consumer polling a containerized app gets
+ * "fetch failed" instead of "connect ECONNREFUSED 127.0.0.1:3010". Node >= 20's
+ * Happy Eyeballs is worse: it rejects with an `AggregateError` carrying no
+ * message of its own, which renders as the literal string "AggregateError".
+ *
+ * Consumers cannot fix this downstream — this library renders errors to strings
+ * internally (readiness timeouts, `fail()`) before a consumer ever sees them.
+ */
 export function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return describeError(err, 0);
+}
+
+function describeError(err: unknown, depth: number): string {
+  if (err instanceof AggregateError && err.errors.length > 0) {
+    // The depth cap applies here too: `errors` arrays can nest, or be cyclic
+    // when something overrides the own property after construction.
+    if (depth >= MAX_CAUSE_DEPTH) {
+      return err.message || "AggregateError";
+    }
+    const inner = err.errors
+      .map((e: unknown) => describeError(e, depth + 1))
+      .join("; ");
+    // A Happy-Eyeballs AggregateError usually carries no message of its own.
+    const rendered =
+      err.message && err.message !== "AggregateError"
+        ? `${err.message}: ${inner}`
+        : inner;
+    // An AggregateError can carry BOTH errors and its own cause. Dropping the
+    // cause here would swallow exactly the detail this function exists to
+    // surface, so append it rather than returning early.
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause !== undefined && cause !== null && depth < MAX_CAUSE_DEPTH) {
+      return `${rendered}: ${describeError(cause, depth + 1)}`;
+    }
+    return rendered;
+  }
+  if (err instanceof Error) {
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause !== undefined && cause !== null && depth < MAX_CAUSE_DEPTH) {
+      return `${err.message}: ${describeError(cause, depth + 1)}`;
+    }
+    return err.message;
+  }
+  return String(err);
 }
 
 export function sleep(ms: number): Promise<void> {
