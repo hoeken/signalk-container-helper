@@ -1,4 +1,4 @@
-# Unreleased
+# v0.4.0
 
 - **`start()` and `applyUpdate()` accept an `AbortSignal`** via a new optional
   `OperationOptions` argument. (`stop()` does not: it has nothing cancellable,
