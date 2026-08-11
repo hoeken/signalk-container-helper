@@ -76,7 +76,6 @@ export default function plugin(app) {
           image: "ghcr.io/example/myservice",
           tag,
           signalkAccessiblePorts: [9000], // let signalk-container wire networking
-          signalkDataMount: "/data", // plugin data dir, deployment-agnostic
           env: { LOG_LEVEL: "info" },
           restart: "unless-stopped",
           resources: {
@@ -145,6 +144,61 @@ What `start()` does for you, in order:
 Progress is reported through `app.setPluginStatus`; the final "Running" message is
 yours to set. Fatal failures throw a typed `ContainerHelperError` _after_ reporting
 via `app.setPluginError` — `startSafely` knows not to double-report.
+
+## Mounting your plugin's own data directory
+
+`signalkDataMount` does **not** mount your plugin's data directory. Signal K
+rewrites `app.getDataDirPath()` per plugin, and signalk-container resolves that
+field from _its own_ app object — so you get
+`<configRoot>/plugin-config-data/signalk-container/`, not yours.
+
+| You want                                    | Use                                              |
+| ------------------------------------------- | ------------------------------------------------ |
+| A private writable area in the SK data tree | `signalkDataMount` (signalk-container's)         |
+| The whole SK config root                    | `signalkConfigRootMount` (incl. `security.json`) |
+| **Your own plugin's data dir**              | **`resolveMount()`** + a `volumes` entry         |
+
+`resolveMount` translates any absolute host path into a mount the container
+runtime can actually bind, on bare-metal and containerized Signal K alike:
+
+```ts
+import {
+  waitForContainerManager,
+  resolveMount,
+} from "signalk-container-helper";
+
+// ManagedContainer normally acquires the manager itself — here you need it
+// first, because buildConfig is synchronous and cannot await.
+const { manager } = await waitForContainerManager();
+if (!manager) throw new Error("signalk-container is not installed");
+
+const data = await resolveMount(manager, {
+  containerPath: "/data",
+  hostPath: app.getDataDirPath(), // YOUR plugin's app
+});
+
+container = new ManagedContainer({
+  app,
+  pluginId: "signalk-myservice",
+  name: "myservice",
+  image: "ghcr.io/example/myservice",
+  buildConfig: (tag) => ({
+    image: "ghcr.io/example/myservice",
+    tag,
+    volumes: { "/data": data.source },
+    // data.containerPath, NOT "/data" — see below
+    command: ["service", "--config", `${data.containerPath}/config.yml`],
+  }),
+});
+```
+
+**Use `data.containerPath` for paths inside the container, not the mount point
+you asked for.** When Signal K's data dir lives on a _named volume_, container
+runtimes cannot bind a subdirectory of it, so the mount root is the volume and
+`subPath` is the offset to your directory — `containerPath` has that already
+joined. For bind mounts `subPath` is `""` and `containerPath` equals what you
+passed. Ignoring it works on bare-metal and bind-mounted Docker, then silently
+reads the wrong directory on a named-volume deployment.
 
 ## Quick start: an adopted container
 
