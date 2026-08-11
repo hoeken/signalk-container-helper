@@ -11,8 +11,9 @@
  *
  * Source of truth: https://github.com/dirkwa/signalk-container
  *   (src/types.ts and src/updates/types.ts)
- * Last synced against signalk-container: v1.24.0 (pending release —
- * `devices`/`groupAdd` are ahead of the newest published release, 1.23.2)
+ * Last synced against signalk-container: v1.25.5 (the contract test compiles
+ * against whatever the devDependency resolves to, so this line records the
+ * version the JSDoc prose was last read against — the part no test checks)
  * Supported baseline: v1.6.0 — members newer than the baseline are optional
  * here so call sites are forced to feature-detect. Version floors are noted
  * on each member.
@@ -150,10 +151,14 @@ export interface ContainerConfig {
    */
   signalkDataMount?: string;
   /**
-   * Mount the whole Signal K config root (~/.signalk) here — the entire
-   * installation config, including `security.json` and every plugin's
-   * `plugin-config-data/` subdirectory. Prefer `resolveMount()` when you
-   * only need your own plugin's directory. 1.5.0+.
+   * Mount the whole Signal K config root (`app.config.configPath`, typically
+   * `~/.signalk`) here — the entire installation config, including
+   * `security.json` and every plugin's `plugin-config-data/` subdirectory.
+   * Unlike `signalkDataMount` this is NOT per-plugin: Signal K does not
+   * rewrite `configPath`, so every caller gets the same tree. Prefer
+   * `resolveMount()` when you only need your own plugin's directory.
+   *
+   * Throws if the caller's `app` lacks `config.configPath`. 1.5.0+.
    */
   signalkConfigRootMount?: string;
   /**
@@ -600,7 +605,9 @@ export interface ContainerManagerApi {
   remove(name: string): Promise<void>;
   /**
    * Remove a container AND its bind-mount data dir, handling the
-   * rootless-Podman subuid ownership trap. 1.18.0+ — feature-detect.
+   * rootless-Podman subuid ownership trap. The path must sit under the
+   * calling context's `app.getDataDirPath()` or below; empty paths and
+   * filesystem roots are refused. 1.18.0+ — feature-detect.
    */
   removeManagedData?(
     name: string,
@@ -625,7 +632,12 @@ export interface ContainerManagerApi {
     containerName: string,
     containerPort: number,
   ): Promise<string | null>;
-  /** Host source backing app.getDataDirPath() in this deployment. */
+  /**
+   * Host source backing **signalk-container's own** `app.getDataDirPath()` —
+   * the same value `signalkDataMount` resolves to, and equally NOT the
+   * calling plugin's data dir. Takes no plugin id and cannot be scoped to
+   * one; use `resolveMount()` for your own directory.
+   */
   resolveSignalkDataMount?(): Promise<string | null>;
   /**
    * Translate an absolute path to the (source, subPath) mountable by the
