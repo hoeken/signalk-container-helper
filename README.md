@@ -161,35 +161,48 @@ field from _its own_ app object — so you get
 `resolveMount` translates any absolute host path into a mount the container
 runtime can actually bind, on bare-metal and containerized Signal K alike:
 
+Because `buildConfig` is synchronous, resolve the mount inside `startSafely`
+before constructing the container — `resolveMount` failures then propagate
+through `startSafely` like any other startup error:
+
 ```ts
 import {
-  waitForContainerManager,
+  ManagedContainer,
   resolveMount,
+  startSafely,
+  waitForContainerManager,
 } from "signalk-container-helper";
 
-// ManagedContainer normally acquires the manager itself — here you need it
-// first, because buildConfig is synchronous and cannot await.
-const { manager } = await waitForContainerManager();
-if (!manager) throw new Error("signalk-container is not installed");
+start(rawConfig) {
+  startSafely(app, async () => {
+    // ManagedContainer normally acquires the manager itself; here you need
+    // it up front, because buildConfig cannot await.
+    const { manager } = await waitForContainerManager();
+    if (!manager) throw new Error("signalk-container is not installed");
 
-const data = await resolveMount(manager, {
-  containerPath: "/data",
-  hostPath: app.getDataDirPath(), // YOUR plugin's app
-});
+    const data = await resolveMount(manager, {
+      containerPath: "/data",
+      hostPath: app.getDataDirPath(), // YOUR plugin's app
+    });
 
-container = new ManagedContainer({
-  app,
-  pluginId: "signalk-myservice",
-  name: "myservice",
-  image: "ghcr.io/example/myservice",
-  buildConfig: (tag) => ({
-    image: "ghcr.io/example/myservice",
-    tag,
-    volumes: { "/data": data.source },
-    // data.containerPath, NOT "/data" — see below
-    command: ["service", "--config", `${data.containerPath}/config.yml`],
-  }),
-});
+    container = new ManagedContainer({
+      app,
+      pluginId: "signalk-myservice",
+      name: "myservice",
+      image: "ghcr.io/example/myservice",
+      buildConfig: (tag) => ({
+        image: "ghcr.io/example/myservice",
+        tag,
+        volumes: { "/data": data.source },
+        // data.containerPath, NOT "/data" — see below
+        command: ["service", "--config", `${data.containerPath}/config.yml`],
+      }),
+    });
+
+    await container.start(rawConfig.imageTag);
+    app.setPluginStatus("Running");
+  });
+}
 ```
 
 **Use `data.containerPath` for paths inside the container, not the mount point
@@ -491,6 +504,7 @@ Adopt these even where you don't use the components:
 | `AdoptedContainer`              | Update registration + checks for externally-managed containers                                                                                                                                                                                                                           |
 | `getContainerManager()`         | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
 | `waitForContainerManager(opts)` | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
+| `resolveMount(manager, opts)`   | Translate an absolute host path into a mountable `{ source, containerPath, subPath }` — how you mount **your own** plugin's data dir (see [Mounting your plugin's own data directory](#mounting-your-plugins-own-data-directory))                                                        |
 | `waitForHttpReady(url, opts)`   | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
 | `retryForever(fn, opts)`        | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
 | `anySignal(signals)`            | Compose several `AbortSignal`s into one that aborts when any does (`undefined` when none are given)                                                                                                                                                                                      |
@@ -517,9 +531,13 @@ Adopt these even where you don't use the components:
 | `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                                                                                            |
 | `cancelled`           | The `AbortSignal` passed to the operation fired, or a newer lifecycle operation superseded a retrying `start()` (see [Cancelling an operation](#cancelling-an-operation)) |
 | `invalid-option`      | An option could not produce sane behaviour — e.g. a non-finite or negative `retryForever` delay bound                                                                     |
+| `unsupported-manager` | `resolveMount` needs `resolveHostPath` (signalk-container 1.7.0+)                                                                                                         |
+| `path-unreachable`    | `resolveMount` found no Signal K mount covering the requested host path, so the host runtime cannot reach it                                                              |
 
-All errors thrown by the helpers have already been surfaced through
+Errors thrown by the lifecycle methods have already been surfaced through
 `app.setPluginError` (`reported: true`), so `startSafely` won't report them twice.
+`resolveMount` is the exception: it takes no `app`, so its errors carry
+`reported: false` and `startSafely` is what surfaces them.
 
 ### Cancelling an operation
 
@@ -619,6 +637,7 @@ The helpers feature-detect newer signalk-container capabilities:
 | ------------------------------------------------------ | ------ | ------------------------------------------------------------ |
 | `whenReady()`                                          | 1.6.0  | polls `getRuntime()`                                         |
 | `getLogs()`                                            | 1.7.0  | `getLogs()` returns `null`                                   |
+| `resolveHostPath()`                                    | 1.7.0  | `resolveMount()` throws `unsupported-manager`                |
 | `recreate()`                                           | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
 | `ContainerConfig.healthcheck`                          | 1.14.0 | ignored by older versions                                    |
 | `ContainerConfig.ulimits`                              | 1.17.0 | ignored by older versions                                    |

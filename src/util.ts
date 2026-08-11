@@ -86,7 +86,9 @@ export type ContainerHelperErrorCode =
   | "not-ready"
   | "recreate-limbo"
   | "cancelled"
-  | "invalid-option";
+  | "invalid-option"
+  | "unsupported-manager"
+  | "path-unreachable";
 
 /**
  * Typed error thrown by ManagedContainer/AdoptedContainer operations.
