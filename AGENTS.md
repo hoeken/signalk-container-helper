@@ -41,9 +41,34 @@ directly. The "no JSX" property README refers to is about the **artifact**, not
 the source; do not add a JSX transform expectation for consumers.
 
 `src/types.ts` mirrors `signalk-container`'s API. `test/types-contract.test-d.ts`
-pins the mirror against the real thing so it cannot silently drift. When a
-`signalk-container` bump lands, that test passing is the evidence the mirror is
-still correct — say so explicitly rather than assuming it.
+pins the mirror's **shape** — structural equality and name coverage — so a
+changed signature or a dropped member fails compilation. When a
+`signalk-container` bump lands, that test passing is the evidence the _shapes_
+are still right; say so explicitly rather than claiming more.
+
+**It does not check JSDoc, and prose is where the mirror actually broke.**
+Issue #35: our `signalkDataMount` doc said "the plugin's data dir", which in a
+file addressing consumer-plugin authors reads as the consumer's. It is
+signalk-container's own. The contract test stayed green throughout.
+
+That was not upstream drift — it was lossy compression. Upstream states the
+fact plainly, but in the _neighbouring_ field's block (`signalkConfigRootMount`
+explains what `signalkDataMount` resolves to), and the mirror dropped the
+clause when condensing two blocks into one. So when mirroring:
+
+- If a member's behaviour depends on **which plugin's `app` object** resolves
+  it, name the owner explicitly. "signalk-container's own", never "the
+  plugin's". `signalkDataMount`, `resolveSignalkDataMount`,
+  `signalkConfigRootMount`, and `removeManagedData` are all in this class.
+- Before condensing a block, grep the canonical `.d.ts` for the member's name
+  and read every hit **outside** its own JSDoc. Disambiguation living next
+  door is exactly what gets lost.
+- Keep behavioural facts (what throws, what is refused) even when trimming
+  prose. Those are contract, not flavour.
+
+`test/types-doc-anchors.test.ts` pins these claims for the known-dangerous
+members. It is a tripwire against re-simplification, not a general guard — it
+has no power over a member nobody has audited yet.
 
 ## Commands
 
