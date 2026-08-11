@@ -52,6 +52,10 @@ export interface FakeManagerSetup {
   /** Include the optional recreate method (1.12.0+). Default true. */
   withRecreate?: boolean;
   resolveAddress?: string | null;
+  /** Include the optional resolveHostPath method (1.7.0+). Default true. */
+  withResolveHostPath?: boolean;
+  /** What resolveHostPath returns; null models an unreachable path. */
+  hostPath?: { source: string; subPath: string } | null;
 }
 
 /** A fully-mocked ContainerManagerApi backed by vi.fn()s. */
@@ -61,6 +65,11 @@ export function makeManager(setup: FakeManagerSetup = {}) {
     containers = [],
     withRecreate = true,
     resolveAddress = "127.0.0.1:9000",
+    withResolveHostPath = true,
+    hostPath = {
+      source: "/home/x/.signalk/plugin-config-data/my-plugin",
+      subPath: "",
+    },
   } = setup;
 
   const manager = {
@@ -69,7 +78,7 @@ export function makeManager(setup: FakeManagerSetup = {}) {
     pullImage: vi.fn(async () => {}),
     imageExists: vi.fn(async () => true),
     getImageDigest: vi.fn(async () => null),
-    ensureRunning: vi.fn(async () => {}),
+    ensureRunning: vi.fn<ContainerManagerApi["ensureRunning"]>(async () => {}),
     ...(withRecreate ? { recreate: vi.fn(async () => {}) } : {}),
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
@@ -79,6 +88,9 @@ export function makeManager(setup: FakeManagerSetup = {}) {
     updateResources: vi.fn(async () => ({ method: "live" as const })),
     getResources: vi.fn(() => ({})),
     resolveContainerAddress: vi.fn(async () => resolveAddress),
+    ...(withResolveHostPath
+      ? { resolveHostPath: vi.fn(async () => hostPath) }
+      : {}),
     runJob: vi.fn(async () => ({
       id: "job-1",
       status: "completed" as const,

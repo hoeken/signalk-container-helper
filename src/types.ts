@@ -135,12 +135,26 @@ export interface ContainerConfig {
   /** container path → host path | named volume | VolumeSpec. */
   volumes?: Record<string, string | VolumeSpec>;
   /**
-   * Mount the plugin's Signal K data dir (app.getDataDirPath()) at this
-   * container path; the host-side source is resolved automatically for
-   * bare-metal and containerized Signal K deployments.
+   * Mount **signalk-container's own** Signal K data dir at this container
+   * path. Signal K rewrites `app.getDataDirPath()` per plugin, and the
+   * manager resolves this field from *its* app object — so a consumer
+   * plugin setting this gets `<configRoot>/plugin-config-data/signalk-container/`,
+   * NOT its own data dir. Useful only as a private writable area inside the
+   * Signal K data tree.
+   *
+   * To mount your own plugin's data dir, use `resolveMount()` with your
+   * `app.getDataDirPath()` and pass the result as a plain `volumes` entry.
+   *
+   * The host-side source is resolved automatically for bare-metal and
+   * containerized Signal K deployments.
    */
   signalkDataMount?: string;
-  /** Mount the whole Signal K config root (~/.signalk) here. 1.5.0+. */
+  /**
+   * Mount the whole Signal K config root (~/.signalk) here — the entire
+   * installation config, including `security.json` and every plugin's
+   * `plugin-config-data/` subdirectory. Prefer `resolveMount()` when you
+   * only need your own plugin's directory. 1.5.0+.
+   */
   signalkConfigRootMount?: string;
   /**
    * Container ports the Signal K process must reach back into; networking

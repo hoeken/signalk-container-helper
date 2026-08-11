@@ -58,6 +58,38 @@ describe("ManagedContainer.start", () => {
     expect(container.lastStartedTag).toBe("latest");
   });
 
+  it("passes buildConfig's result to ensureRunning untouched", async () => {
+    // Guards issue #35: signalkDataMount resolution belongs to
+    // signalk-container, so the helper must never rewrite the config on its
+    // way through. A "fix" that mutates mounts here would break drift
+    // detection, which diffs against exactly what we send.
+    const manager = makeManager();
+    installManager(manager);
+    const config: ContainerConfig = {
+      image: IMAGE,
+      tag: "latest",
+      signalkDataMount: "/data",
+      volumes: { "/extra": "/host/extra" },
+    };
+    const expected: ContainerConfig = {
+      image: IMAGE,
+      tag: "latest",
+      signalkDataMount: "/data",
+      volumes: { "/extra": "/host/extra" },
+    };
+    const { container } = makeContainer({ buildConfig: () => config });
+
+    await container.start();
+
+    const call = vi.mocked(manager.ensureRunning).mock.calls[0];
+    expect(call?.[0]).toBe("test-service");
+    // Same object, not a copy: nothing rewrote or re-wrapped the config.
+    expect(call?.[1]).toBe(config);
+    expect(call?.[2]).toBeUndefined();
+    // And it was not mutated in place on the way through.
+    expect(config).toEqual(expected);
+  });
+
   it("passes ensureOptions through", async () => {
     const manager = makeManager();
     installManager(manager);

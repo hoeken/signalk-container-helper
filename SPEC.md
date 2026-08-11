@@ -231,6 +231,15 @@ startSafely(app, () => asyncStart(config));
 
 errMsg(err); // unknown → string
 isValidImageTag(tag); // SAFE_TAG check
+
+resolveMount(manager, { containerPath, hostPath });
+// absolute host path → { source, containerPath, subPath } mountable by the
+// runtime on bare-metal and containerized Signal K alike. How a consumer
+// mounts its OWN data dir: signalkDataMount resolves to signalk-container's,
+// and a raw app.getDataDirPath() in volumes breaks once SK is containerized.
+// subPath is non-empty only for named volumes, where runtimes cannot bind a
+// subdirectory; containerPath has it joined already.
+
 class ContainerHelperError extends Error {
   code:
     | "manager-unavailable"
@@ -238,7 +247,11 @@ class ContainerHelperError extends Error {
     | "invalid-tag"
     | "address-unresolved"
     | "not-ready"
-    | "recreate-limbo";
+    | "recreate-limbo"
+    | "cancelled"
+    | "invalid-option"
+    | "unsupported-manager"
+    | "path-unreachable";
   reported: boolean; // true when the helper already called setPluginError
 }
 ```
