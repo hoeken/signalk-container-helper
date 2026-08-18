@@ -69,6 +69,31 @@ export interface UlimitClamp {
   reason: string;
 }
 
+/** Event delivered to `EnsureRunningOptions.onResourceClamped` (1.28.1+). */
+export interface ResourceClamp {
+  /** The limit that was clamped; currently only `"cpus"`. */
+  resource: "cpus";
+  requested: number;
+  granted: number;
+  reason: string;
+}
+
+/**
+ * Event delivered to `EnsureRunningOptions.onContainerWedged` (1.29.0+): a
+ * drift recreate was deferred because the runtime cannot stop or remove the
+ * live container (a permission error — typically an orphaned rootless-Podman
+ * user namespace after a Podman service restart). Fired once per wedge; the
+ * `reason` carries the operator remedy, so surface it via `setPluginError`.
+ */
+export interface ContainerWedged {
+  /** Managed name as passed to `ensureRunning` (before the `sk-` prefix). */
+  name: string;
+  /** What prompted the recreate, e.g. `"networkMode"` or `"nofile N → M"`. */
+  drift: string;
+  /** Human-readable explanation with remediation; safe for `setPluginError`. */
+  reason: string;
+}
+
 /**
  * Explicit healthcheck for a managed container (config field is 1.14.0+;
  * silently ignored by older versions). `false` emits `--no-healthcheck`.
@@ -261,6 +286,15 @@ export interface EnsureRunningOptions {
   onContainerLogStartTail?: number;
   /** Fired when a requested ulimit was lowered to the host ceiling (1.17.0+). */
   onUlimitClamped?: (event: UlimitClamp) => void;
+  /** Fired when a `cpus` cap was lowered to the daemon's CPU count (1.28.1+). */
+  onResourceClamped?: (event: ResourceClamp) => void;
+  /**
+   * Fired once when a drift recreate is deferred because the runtime cannot
+   * stop or remove the container (orphaned rootless userns / permission).
+   * Surface via `setPluginError`; the container needs out-of-band recovery
+   * (1.29.0+).
+   */
+  onContainerWedged?: (event: ContainerWedged) => void;
   /** npm package name — opt-in to digest pinning manifests. */
   pluginId?: string;
   pluginVersion?: string;
