@@ -17,6 +17,8 @@ import type {
   ContainerInfo as CanonicalContainerInfo,
   ContainerState as CanonicalContainerState,
   VolumeIssue as CanonicalVolumeIssue,
+  ResourceClamp as CanonicalResourceClamp,
+  ContainerWedged as CanonicalContainerWedged,
   ContainerResourceLimits as CanonicalContainerResourceLimits,
   UpdateRegistration as CanonicalUpdateRegistration,
   UpdateCheckResult as CanonicalUpdateCheckResult,
@@ -37,6 +39,8 @@ import type {
   ContainerInfo,
   ContainerState,
   VolumeIssue,
+  ResourceClamp,
+  ContainerWedged,
   ContainerResourceLimits,
   UpdateRegistration,
   UpdateCheckResult,
@@ -95,6 +99,15 @@ export type _Config = Assignable<ContainerConfig, CanonicalContainerConfig>;
 export type _Info = Assignable<CanonicalContainerInfo, ContainerInfo>;
 // VolumeIssue flows OUT (onVolumeIssue callback payload).
 export type _Volume = Assignable<CanonicalVolumeIssue, VolumeIssue>;
+// ResourceClamp / ContainerWedged flow OUT (onResourceClamped / onContainerWedged
+// callback payloads). Small value types the mirror keeps in sync so consumers can
+// type their handlers; canonical must be assignable to ours (added in
+// signalk-container 1.28.1 / 1.29.0).
+export type _ResourceClamp = Assignable<CanonicalResourceClamp, ResourceClamp>;
+export type _ContainerWedged = Assignable<
+  CanonicalContainerWedged,
+  ContainerWedged
+>;
 // ContainerResourceLimits flows INTO signalk-container (config input).
 export type _Limits = Assignable<
   ContainerResourceLimits,

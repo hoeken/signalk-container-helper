@@ -510,9 +510,20 @@ export type SelfDeploymentStatus =
  * looking complete — a consumer reading `isContainerized` (the field the
  * probe exists for) got no error and no value.
  */
+/**
+ * Recognised host platform marker (signalk-container 1.26.0+). Currently only
+ * HaLOS is detected; `null`/absent means an unrecognised or generic host.
+ */
+export type HostPlatform = "halos";
+
 export interface SelfDeploymentResult {
   /** True when /.dockerenv, /run/.containerenv, or `$container` is set. */
   isContainerized: boolean;
+  /**
+   * Recognised host platform, or `null` when no marker matched. Optional —
+   * payloads from older servers omit it (treat absent as `null`).
+   */
+  platform?: HostPlatform | null;
   binary: {
     name: RuntimeName | null;
     path: string | null;

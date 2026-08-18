@@ -73,7 +73,7 @@
     "globals": "^17.4.0",
     "prettier": "^3.8.1",
     "react": "^19.0.0",
-    "signalk-container": "^1.23.2",
+    "signalk-container": "^1.29.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.0",
     "vitest": "^4.1.10"
