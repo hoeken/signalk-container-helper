@@ -14,8 +14,6 @@
 import { ContainerHelperError } from "./util.js";
 import type { ContainerManagerApi, HostDeviceProbeResult } from "./types.js";
 
-export type { HostDeviceProbeResult };
-
 /**
  * Probe a host path for device nodes and the groups that own them.
  *
