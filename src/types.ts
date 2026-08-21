@@ -42,6 +42,16 @@ export type ContainerState = "running" | "stopped" | "missing" | "no-runtime";
  * Per-volume policy when the host source path is missing at create time.
  * Named volumes (no leading `/` or `.`) always pass through.
  */
+/** What {@link ContainerManagerApi.probeHostDevice} found. */
+export interface HostDeviceProbeResult {
+  /** The path exists on the host and holds at least one device node. */
+  exists: boolean;
+  /** Device node names found there, sorted. */
+  nodes: string[];
+  /** Host group names owning them, sorted; numeric gid when unnamed. */
+  groups: string[];
+}
+
 export interface VolumeSpec {
   /** Host path or named-volume string — same shape as the bare-string form. */
   source: string;
@@ -51,6 +61,14 @@ export interface VolumeSpec {
    * - `'abort'`: throw from ensureRunning. Required mounts (certs, secrets).
    */
   ifMissing?: "create" | "skip" | "abort";
+  /**
+   * Bind the volume read-only. Default false.
+   *
+   * For a directory owned by ANOTHER component — charts published by a chart
+   * provider, say — this keeps the consuming container from writing into it.
+   * signalk-container 1.30.0+; silently ignored by older versions.
+   */
+  readOnly?: boolean;
 }
 
 /** Event delivered to `EnsureRunningOptions.onVolumeIssue`. */
@@ -688,6 +706,12 @@ export interface ContainerManagerApi {
    * Translate an absolute path to the (source, subPath) mountable by the
    * host runtime. Null when unreachable. 1.7.0+ — feature-detect.
    */
+  /**
+   * Whether a device path exists on the HOST, and which groups own its nodes.
+   * See `probeHostDevice()` for why a plugin cannot answer this itself.
+   * signalk-container 1.30.0+.
+   */
+  probeHostDevice?(path: string): Promise<HostDeviceProbeResult | null>;
   resolveHostPath?(
     absPath: string,
   ): Promise<{ source: string; subPath: string } | null>;

@@ -17,6 +17,8 @@ export type { AdoptedContainerOptions } from "./adopted-container.js";
 export { buildVersionSource } from "./version-source.js";
 export type { VersionSourceSpec } from "./version-source.js";
 export { resolveMount } from "./host-path.js";
+export { probeHostDevice } from "./host-device.js";
+export type { HostDeviceProbeResult } from "./host-device.js";
 export type { HostMount, ResolveMountOptions } from "./host-path.js";
 export { retryForever, anySignal } from "./retry.js";
 export type { RetryForeverOptions } from "./retry.js";
