@@ -703,15 +703,23 @@ export interface ContainerManagerApi {
    */
   resolveSignalkDataMount?(): Promise<string | null>;
   /**
+   * Whether a device path exists on the HOST, and which groups own its nodes.
+   *
+   * A plugin cannot answer this itself: `stat()` describes the plugin's own
+   * filesystem, which is the Signal K container whenever Signal K is
+   * containerized — `/dev/dri` is absent there even on a machine with a GPU.
+   *
+   * `groups` are NAMES, which is what `groupAdd` wants: the gid of
+   * `render`/`video` differs per distro, so a hardcoded number loses access
+   * elsewhere. Null means **unknown**, deliberately distinct from
+   * `{ exists: false }`. signalk-container 1.30.0+ — feature-detect, or use
+   * the `probeHostDevice()` helper which does it for you.
+   */
+  probeHostDevice?(path: string): Promise<HostDeviceProbeResult | null>;
+  /**
    * Translate an absolute path to the (source, subPath) mountable by the
    * host runtime. Null when unreachable. 1.7.0+ — feature-detect.
    */
-  /**
-   * Whether a device path exists on the HOST, and which groups own its nodes.
-   * See `probeHostDevice()` for why a plugin cannot answer this itself.
-   * signalk-container 1.30.0+.
-   */
-  probeHostDevice?(path: string): Promise<HostDeviceProbeResult | null>;
   resolveHostPath?(
     absPath: string,
   ): Promise<{ source: string; subPath: string } | null>;
