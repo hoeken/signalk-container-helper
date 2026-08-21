@@ -31,7 +31,9 @@ describe("probeHostDevice", () => {
 
   it("passes a definite absence through unchanged", async () => {
     const absent = { exists: false, nodes: [], groups: [] };
-    const m = manager({ probeHostDevice: vi.fn(() => Promise.resolve(absent)) });
+    const m = manager({
+      probeHostDevice: vi.fn(() => Promise.resolve(absent)),
+    });
     expect(await probeHostDevice(m, "/dev/dri")).toEqual(absent);
   });
 
