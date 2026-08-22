@@ -64,6 +64,32 @@ describe("normalizeExternalUrl", () => {
     ).toBe("http://x:9999");
   });
 
+  it("keeps an explicitly typed scheme-default port", () => {
+    // URL() discards :80 / :443 as scheme defaults, so `url.port` is "" for
+    // BOTH "http://x" and "http://x:80". Without looking at what the operator
+    // actually typed, defaultPort would silently move them off the port they
+    // chose.
+    expect(
+      normalizeExternalUrl("http://x:80", { defaultPort: 3020 })?.baseUrl,
+    ).toBe("http://x:80");
+    expect(
+      normalizeExternalUrl("https://x:443", { defaultPort: 3020 })?.baseUrl,
+    ).toBe("https://x:443");
+    expect(
+      normalizeExternalUrl("[::1]:80", { defaultPort: 3020 })?.baseUrl,
+    ).toBe("http://[::1]:80");
+  });
+
+  it("still applies defaultPort when no port was typed", () => {
+    // Including the IPv6 case, whose colons must not read as a port.
+    expect(
+      normalizeExternalUrl("http://x", { defaultPort: 3020 })?.baseUrl,
+    ).toBe("http://x:3020");
+    expect(normalizeExternalUrl("[::1]", { defaultPort: 3020 })?.baseUrl).toBe(
+      "http://[::1]:3020",
+    );
+  });
+
   it("honours defaultScheme for a bare host", () => {
     expect(
       normalizeExternalUrl("x:3010", { defaultScheme: "https" })?.baseUrl,
