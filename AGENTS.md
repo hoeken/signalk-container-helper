@@ -116,6 +116,15 @@ transitive dependency can now break CI without any change on our side. That is
 acceptable for a zero-runtime-dependency library whose lockfile no consumer ever
 sees; it would not be for an application.
 
+### `src/url.ts` must use the `URL` global, never `node:url`
+
+`normalizeExternalUrl` is imported by **both** entries — the Node side via
+`endpoint.ts` and the browser side via `ManagedModeFields`. Writing
+`import { URL } from "node:url"` compiles, passes every test, and silently
+breaks two invariants at once: the main entry's "imports no Node builtins"
+property, and the UI bundle for every consumer whose webpack config does not
+polyfill Node core. `URL` is a global in both runtimes; just use it.
+
 ### `test/` is compiled by a separate tsconfig
 
 `tsconfig.json` covers `src/**` only. Test type errors surface via

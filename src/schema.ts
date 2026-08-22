@@ -1,0 +1,127 @@
+// The config-form half of the managed/self-hosted switch.
+//
+// Emits PLAIN JSON Schema, deliberately not TypeBox types.
+//
+// Consumer plugins are split across two mutually incompatible packages —
+// `typebox` 1.x and `@sinclair/typebox` 0.34 — and this library has no runtime
+// dependencies, so it can depend on neither. Plain fragments are the one shape
+// both accept.
+//
+// That split is PERMANENT, not a migration anyone has yet to finish:
+// `@signalk/server-api` itself depends on `@sinclair/typebox` 0.34, so the
+// scoped package is in every consumer's tree no matter which one the plugin
+// picks for its own schema. Moving a plugin to `typebox` 1.x adds a second
+// TypeBox beside the first; it does not remove one. Emitting plain JSON Schema
+// is what keeps this module out of that argument entirely.
+//
+// Splice a fragment in with `Type.Unsafe`, written identically in both:
+//
+//   managedContainer: Type.Unsafe<boolean>(MODE.managedContainer),
+//   externalUrl:      Type.Unsafe<string>(MODE.externalUrl),
+//
+// A bare fragment spread directly into `Type.Object({...})` compiles under
+// typebox 1.x and FAILS under @sinclair/typebox 0.34 ("missing the following
+// properties from type 'TSchema': params, static, [Kind]"), so the
+// `Type.Unsafe` wrapper is not optional.
+//
+// `Type.Unsafe` emits the same keys and values as `Type.Boolean`/`Type.String`
+// but in a different ORDER (`type` first rather than last). JSON Schema and
+// RJSF both ignore key order; compare with sorted keys if you assert on the
+// emitted schema while migrating a plugin.
+
+/** A JSON Schema fragment: plain data, safe to `JSON.stringify`. */
+export interface JsonSchemaFragment {
+  readonly type: string;
+  readonly default?: unknown;
+  readonly title?: string;
+  readonly description?: string;
+  readonly [key: string]: unknown;
+}
+
+export interface ManagedModeSchemaOptions {
+  /** Product noun used in every string, e.g. "backup-server", "QuestDB". */
+  productName: string;
+  /**
+   * Full image ref named in the managed-mode description, e.g.
+   * "ghcr.io/dirkwa/signalk-backup-server". Omitted from the copy when absent.
+   */
+  image?: string;
+  /** Example shown in the URL field, e.g. "http://192.168.1.50:3010". */
+  exampleUrl?: string;
+  /** Property name of the URL field. Default "externalUrl". */
+  urlFieldName?: string;
+  /** Title override for the URL field. */
+  urlTitle?: string;
+  /** Default for the toggle. Default true. */
+  defaultManaged?: boolean;
+}
+
+export interface ManagedModeSchema {
+  managedContainer: JsonSchemaFragment;
+  externalUrl: JsonSchemaFragment;
+  /**
+   * Runtime defaults for both fields, keyed by their property names.
+   *
+   * Signal K uses a schema's `default` only to seed the form, never to seed
+   * the config a plugin receives, so every consumer hand-writes a
+   * SCHEMA_DEFAULTS object beside its schema. Spreading this instead keeps the
+   * two derived from the same literals, which is where the drift was.
+   */
+  defaults: Record<string, boolean | string>;
+}
+
+/**
+ * Build the managed/self-hosted config fields for one plugin.
+ *
+ * The switch means "is this container's lifecycle mine, or is the service
+ * hosted somewhere else" — NOT "is there a container engine on another
+ * machine". signalk-container drives local unix sockets only.
+ */
+export function managedModeSchema(
+  options: ManagedModeSchemaOptions,
+): ManagedModeSchema {
+  const {
+    productName,
+    image,
+    exampleUrl,
+    urlFieldName = "externalUrl",
+    urlTitle,
+    defaultManaged = true,
+  } = options;
+
+  const title = urlTitle ?? `External ${productName} URL`;
+  const runs = image
+    ? `the plugin pulls and runs ${image}`
+    : `the plugin runs ${productName} in a managed container`;
+
+  const managedContainer: JsonSchemaFragment = {
+    type: "boolean",
+    default: defaultManaged,
+    title: `Manage ${productName} container via signalk-container`,
+    description:
+      `When enabled${defaultManaged ? " (default)" : ""}, ${runs}. ` +
+      `Disable to point at an external ${productName} instance via "${title}".`,
+  };
+
+  const externalUrl: JsonSchemaFragment = {
+    type: "string",
+    default: "",
+    title,
+    // States plainly that traffic leaves the host: most of these services
+    // have no authentication and assume a trusted LAN.
+    description:
+      `Used only when managedContainer is disabled` +
+      (exampleUrl ? `. e.g. ${exampleUrl}` : "") +
+      `. Leave blank when managing the container. ` +
+      `Traffic to this address leaves this host — use an address you trust.`,
+  };
+
+  return {
+    managedContainer,
+    externalUrl,
+    defaults: {
+      managedContainer: defaultManaged,
+      [urlFieldName]: "",
+    },
+  };
+}

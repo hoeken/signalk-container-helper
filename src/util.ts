@@ -88,7 +88,9 @@ export type ContainerHelperErrorCode =
   | "cancelled"
   | "invalid-option"
   | "unsupported-manager"
-  | "path-unreachable";
+  | "path-unreachable"
+  | "external-url-missing"
+  | "external-url-invalid";
 
 /**
  * Typed error thrown by ManagedContainer/AdoptedContainer operations.

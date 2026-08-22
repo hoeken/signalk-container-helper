@@ -21,6 +21,26 @@ export type { HostMount, ResolveMountOptions } from "./host-path.js";
 export { retryForever, anySignal } from "./retry.js";
 export type { RetryForeverOptions } from "./retry.js";
 export { fetchWithTimeout, waitForHttpReady, probeHttpHealth } from "./http.js";
+export {
+  resolveEndpoint,
+  waitForEndpointReady,
+  isManagedMode,
+  describeEndpoint,
+} from "./endpoint.js";
+export type {
+  EndpointMode,
+  ResolvedEndpoint,
+  ResolveEndpointOptions,
+  EndpointReadyOptions,
+} from "./endpoint.js";
+export { normalizeExternalUrl } from "./url.js";
+export type { NormalizeUrlOptions, NormalizedUrl } from "./url.js";
+export { managedModeSchema } from "./schema.js";
+export type {
+  JsonSchemaFragment,
+  ManagedModeSchema,
+  ManagedModeSchemaOptions,
+} from "./schema.js";
 export type {
   FetchLike,
   FetchWithTimeoutOptions,
