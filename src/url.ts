@@ -30,7 +30,11 @@ export interface NormalizedUrl {
   scheme: "http" | "https";
   /** Hostname without brackets; an IPv6 literal is bare here. */
   host: string;
-  /** null when the URL relies on the scheme's default port. */
+  /**
+   * null when no port was typed and no `defaultPort` was supplied. A port the
+   * operator typed is always reported, including one that matches the
+   * scheme's default (`:80`, `:443`).
+   */
   port: number | null;
 }
 
@@ -57,6 +61,10 @@ function hasExplicitPort(candidate: string): boolean {
   // A colon inside (or before) the bracket belongs to the IPv6 literal.
   if (closingBracket !== -1 && lastColon < closingBracket) return false;
   return /^\d+$/.test(authority.slice(lastColon + 1));
+}
+
+function isUsablePort(port: number): boolean {
+  return Number.isInteger(port) && port > 0 && port <= 65535;
 }
 
 function schemeDefaultPort(protocol: string): number {
@@ -120,9 +128,7 @@ export function normalizeExternalUrl(
 
   // `new URL("http://x:0")` parses, and port 0 is not a service address.
   let port: number | null = url.port === "" ? null : Number(url.port);
-  if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65535)) {
-    return null;
-  }
+  if (port !== null && !isUsablePort(port)) return null;
   // `URL` drops a port that matches the scheme default, so `url.port` is ""
   // for BOTH "http://x" and "http://x:80". Applying defaultPort on that alone
   // would silently move an operator who deliberately typed :80 onto some
@@ -134,6 +140,10 @@ export function normalizeExternalUrl(
     // null for a port that was stated outright.
     port = schemeDefaultPort(url.protocol);
   } else if (port === null && options.defaultPort !== undefined) {
+    // Held to the same range as a port parsed out of the URL. This one is a
+    // caller mistake rather than operator input, but letting it through
+    // produced addresses like `http://x:NaN`.
+    if (!isUsablePort(options.defaultPort)) return null;
     port = options.defaultPort;
   }
 

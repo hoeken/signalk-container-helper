@@ -174,6 +174,17 @@ describe("normalizeExternalUrl", () => {
     expect(normalizeExternalUrl("http://x")?.port).toBeNull();
   });
 
+  it("rejects an out-of-range defaultPort the same as a URL-parsed one", () => {
+    // Caller error rather than operator input, but letting it through built
+    // addresses like `http://x:NaN`.
+    for (const bad of [0, 65536, 1.5, -1, NaN]) {
+      expect(normalizeExternalUrl("http://x", { defaultPort: bad })).toBeNull();
+    }
+    expect(normalizeExternalUrl("http://x", { defaultPort: 3020 })?.port).toBe(
+      3020,
+    );
+  });
+
   it("returns an address usable as host:port", () => {
     expect(normalizeExternalUrl("http://10.0.0.5:8080")?.address).toBe(
       "10.0.0.5:8080",

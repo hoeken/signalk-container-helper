@@ -51,6 +51,15 @@ describe("managedModeSchema", () => {
     expect(s.defaults.managedContainer).toBe(false);
   });
 
+  it("does not claim '(default)' when the default is disabled", () => {
+    const on = managedModeSchema(OPTS).managedContainer.description as string;
+    const off = managedModeSchema({ ...OPTS, defaultManaged: false })
+      .managedContainer.description as string;
+    expect(on).toContain("When enabled (default)");
+    expect(off).toContain("When enabled,");
+    expect(off).not.toContain("(default)");
+  });
+
   it("omits the image clause when no image is given", () => {
     const s = managedModeSchema({ productName: "QuestDB" });
     expect(s.managedContainer.description).toContain("managed container");

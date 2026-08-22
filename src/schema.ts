@@ -99,7 +99,7 @@ export function managedModeSchema(
     default: defaultManaged,
     title: `Manage ${productName} container via signalk-container`,
     description:
-      `When enabled (default), ${runs}. ` +
+      `When enabled${defaultManaged ? " (default)" : ""}, ${runs}. ` +
       `Disable to point at an external ${productName} instance via "${title}".`,
   };
 
