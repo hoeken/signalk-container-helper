@@ -32,6 +32,7 @@ export type {
 } from "./hooks.js";
 
 export {
+  ManagedModeFields,
   SectionTitle,
   Hint,
   FieldRow,

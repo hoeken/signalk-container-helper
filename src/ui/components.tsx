@@ -14,6 +14,8 @@ import {
 } from "./versions.js";
 import { formatUpdateMessage } from "./format.js";
 import { useUpdateFlow } from "./hooks.js";
+import { isManagedMode } from "../endpoint.js";
+import { normalizeExternalUrl } from "../url.js";
 
 /** Uppercase section heading ("GRAFANA STATUS", "SETTINGS", …). */
 export function SectionTitle({ children }: { children: ReactNode }) {
@@ -485,5 +487,91 @@ export function UpdateControls({
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * The managed/self-hosted switch: a toggle, plus the fields that only apply
+ * when the service is hosted elsewhere.
+ *
+ * Reuses `isManagedMode` and `normalizeExternalUrl` from the Node side rather
+ * than re-deriving them, so the form and the runtime cannot disagree about
+ * what an unset value or a valid URL means. Both are pure and import no Node
+ * builtins, which is what makes them safe to pull into a browser bundle.
+ *
+ * `url` is optional: plugins that address their service by host + port (rather
+ * than one URL) pass their own fields as `children` instead. The config schema
+ * fragment stands alone without this component — the RJSF-only plugins have no
+ * panel at all.
+ */
+export function ManagedModeFields({
+  managed,
+  onManagedChange,
+  productName,
+  label,
+  managedHint,
+  externalHint,
+  url,
+  children,
+}: {
+  /** Raw config value; `undefined` renders as managed. */
+  managed: boolean | undefined;
+  onManagedChange: (managed: boolean) => void;
+  productName: string;
+  label?: ReactNode;
+  managedHint?: ReactNode;
+  externalHint?: ReactNode;
+  url?: {
+    value: string;
+    onChange: (value: string) => void;
+    label?: ReactNode;
+    placeholder?: string;
+  };
+  children?: ReactNode;
+}) {
+  const isManaged = isManagedMode(managed);
+  // Only complain about what the operator has actually typed; an empty field
+  // is "not configured yet", which the toggle's own hint already says.
+  const invalid =
+    !isManaged &&
+    url !== undefined &&
+    url.value.trim() !== "" &&
+    normalizeExternalUrl(url.value) === null;
+
+  return (
+    <>
+      <FieldRow
+        label={label ?? "Managed container"}
+        hint={
+          isManaged
+            ? (managedHint ?? `signalk-container runs ${productName}`)
+            : (externalHint ?? `Connect to an external ${productName}`)
+        }
+      >
+        <input
+          type="checkbox"
+          style={S.checkbox}
+          checked={isManaged}
+          onChange={(e) => onManagedChange(e.target.checked)}
+        />
+      </FieldRow>
+      {!isManaged && url && (
+        <FieldRow
+          label={url.label ?? `External ${productName} URL`}
+          hint={
+            invalid ? "Enter a URL like http://192.168.1.50:3010" : undefined
+          }
+          hintColor={invalid ? stateColors.error : undefined}
+        >
+          <input
+            style={{ ...S.input, width: 280 }}
+            value={url.value}
+            placeholder={url.placeholder}
+            onChange={(e) => url.onChange(e.target.value)}
+          />
+        </FieldRow>
+      )}
+      {!isManaged && children}
+    </>
   );
 }
