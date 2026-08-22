@@ -126,6 +126,18 @@ describe("normalizeExternalUrl", () => {
     }
   });
 
+  it("does not mistake credentials for a port, and strips them", () => {
+    // "user:pass@x" has a colon in the authority that is not a port; the
+    // credentials must also not survive into baseUrl, which gets logged.
+    expect(
+      normalizeExternalUrl("http://user:pass@x", { defaultPort: 3020 })
+        ?.baseUrl,
+    ).toBe("http://x:3020");
+    expect(normalizeExternalUrl("http://user:pass@x:8080")?.baseUrl).toBe(
+      "http://x:8080",
+    );
+  });
+
   it("returns an address usable as host:port", () => {
     expect(normalizeExternalUrl("http://10.0.0.5:8080")?.address).toBe(
       "10.0.0.5:8080",
