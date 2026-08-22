@@ -559,7 +559,9 @@ export function ManagedModeFields({
         <FieldRow
           label={url.label ?? `External ${productName} URL`}
           hint={
-            invalid ? "Enter a URL like http://192.168.1.50:3010" : undefined
+            invalid
+              ? `Enter a URL like ${url.placeholder ?? "http://192.168.1.50:3010"}`
+              : undefined
           }
           hintColor={invalid ? stateColors.error : undefined}
         >

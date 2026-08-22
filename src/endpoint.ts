@@ -23,8 +23,12 @@ export interface ResolvedEndpoint {
   mode: EndpointMode;
   /** Scheme-ful base with no trailing slash — append absolute paths to it. */
   baseUrl: string;
-  /** `host:port` as the container manager reports it; null when the external
-   *  URL relies on its scheme's default port. */
+  /**
+   * `host:port` — as the container manager reports it in managed mode, or as
+   * the operator's URL resolved to in self-hosted mode. A bare `host` when no
+   * port was given and none was defaulted. Never null in practice today; the
+   * type keeps the door open for a manager that cannot answer.
+   */
   address: string | null;
   /** The container, in managed mode only — null when self-hosted. */
   container: ManagedContainer | null;

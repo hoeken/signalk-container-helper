@@ -38,6 +38,11 @@ export interface NormalizedUrl {
 // literal both contain colons but neither has a scheme.
 const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 
+// A hostname (letters, digits, dot, hyphen, underscore) or a bracketed IPv6
+// literal. Deliberately conservative: this is the address a plugin will
+// connect to and log.
+const VALID_HOST = /^(?:[a-zA-Z0-9._-]+|\[[0-9a-fA-F:.]+\])$/;
+
 // True when the authority the operator typed carries its own `:port`. Works on
 // the pre-parse string because `URL` has already discarded a scheme-default
 // port by the time it can be inspected. The host may be a bracketed IPv6
@@ -87,6 +92,9 @@ export function normalizeExternalUrl(
       text = text.slice(1, -1).trim();
     }
   }
+  // An UNBALANCED quote is not a paste artefact to clean up — it is input the
+  // operator needs told about, and `"` survives URL parsing as a hostname.
+  if (text.includes('"') || text.includes("'")) return null;
   if (!text) return null;
 
   const scheme = options.defaultScheme ?? "http";
@@ -103,6 +111,12 @@ export function normalizeExternalUrl(
   // wrong in a way the operator wants told, not silently coerced.
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.hostname) return null;
+  // WHATWG URL accepts `"`, backtick and braces in a hostname rather than
+  // throwing, so a mangled paste like `"http://x` parses with hostname
+  // `"http` and would otherwise be handed to fetch and written to the log.
+  // Allow only what a hostname or IP literal can legally contain — Unicode
+  // has already been punycoded by this point.
+  if (!VALID_HOST.test(url.hostname)) return null;
 
   // `new URL("http://x:0")` parses, and port 0 is not a service address.
   let port: number | null = url.port === "" ? null : Number(url.port);
@@ -113,10 +127,14 @@ export function normalizeExternalUrl(
   // for BOTH "http://x" and "http://x:80". Applying defaultPort on that alone
   // would silently move an operator who deliberately typed :80 onto some
   // other port. Ask the authority the operator actually wrote instead.
-  if (port === null && options.defaultPort !== undefined) {
-    port = hasExplicitPort(candidate)
-      ? schemeDefaultPort(url.protocol)
-      : options.defaultPort;
+  if (port === null && hasExplicitPort(candidate)) {
+    // The operator typed the scheme's default port. Report it rather than
+    // null: `baseUrl` is unaffected either way, but a consumer reading `.port`
+    // for a non-HTTP protocol (a raw TCP ingest port, say) would otherwise get
+    // null for a port that was stated outright.
+    port = schemeDefaultPort(url.protocol);
+  } else if (port === null && options.defaultPort !== undefined) {
+    port = options.defaultPort;
   }
 
   // url.hostname brackets an IPv6 literal; keep the bare form in `host` and

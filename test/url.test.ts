@@ -138,6 +138,42 @@ describe("normalizeExternalUrl", () => {
     );
   });
 
+  it("rejects a hostname WHATWG URL would otherwise wave through", () => {
+    // `new URL("http://\"http://x")` does NOT throw — it parses with hostname
+    // `"http`. Without an explicit charset guard that garbage reaches fetch
+    // and the log.
+    for (const bad of ['"http://x:3010', 'http://x:3010"', "x`y", "x{}y"]) {
+      expect(normalizeExternalUrl(bad)).toBeNull();
+    }
+  });
+
+  it("accepts legitimate hostname shapes", () => {
+    for (const good of [
+      "10.0.0.5",
+      "my_host.local",
+      "nas-01.lan",
+      "[::1]",
+      "[fe80::1]:9000",
+    ]) {
+      expect(normalizeExternalUrl(good)).not.toBeNull();
+    }
+  });
+
+  it("punycodes a unicode hostname rather than rejecting it", () => {
+    expect(normalizeExternalUrl("café.local")?.host).toBe("xn--caf-dma.local");
+  });
+
+  it("reports an explicitly typed scheme-default port even with no defaultPort", () => {
+    // URL() drops :80/:443 as scheme defaults. baseUrl is unaffected either
+    // way, but a consumer reading `.port` for a non-HTTP protocol (a raw TCP
+    // ingest port) would otherwise get null for a port stated outright.
+    expect(normalizeExternalUrl("http://x:80")?.port).toBe(80);
+    expect(normalizeExternalUrl("https://x:443")?.port).toBe(443);
+    expect(normalizeExternalUrl("[::1]:80")?.baseUrl).toBe("http://[::1]:80");
+    // …and no port typed still means null.
+    expect(normalizeExternalUrl("http://x")?.port).toBeNull();
+  });
+
   it("returns an address usable as host:port", () => {
     expect(normalizeExternalUrl("http://10.0.0.5:8080")?.address).toBe(
       "10.0.0.5:8080",
