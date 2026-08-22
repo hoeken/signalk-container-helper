@@ -1,20 +1,33 @@
 // The config-form half of the managed/self-hosted switch.
 //
-// Emits PLAIN JSON Schema, deliberately not TypeBox types. Consumers are split
-// across two mutually incompatible packages — `typebox` 1.x and
-// `@sinclair/typebox` 0.34 — and this library has no runtime dependencies, so
-// it can depend on neither. Plain fragments are the one shape both accept.
+// Emits PLAIN JSON Schema, deliberately not TypeBox types.
 //
-// Splice a fragment in with `Type.Unsafe`, which is written identically in both
-// packages and emits byte-identical JSON:
+// Consumer plugins are split across two mutually incompatible packages —
+// `typebox` 1.x and `@sinclair/typebox` 0.34 — and this library has no runtime
+// dependencies, so it can depend on neither. Plain fragments are the one shape
+// both accept.
+//
+// That split is PERMANENT, not a migration anyone has yet to finish:
+// `@signalk/server-api` itself depends on `@sinclair/typebox` 0.34, so the
+// scoped package is in every consumer's tree no matter which one the plugin
+// picks for its own schema. Moving a plugin to `typebox` 1.x adds a second
+// TypeBox beside the first; it does not remove one. Emitting plain JSON Schema
+// is what keeps this module out of that argument entirely.
+//
+// Splice a fragment in with `Type.Unsafe`, written identically in both:
 //
 //   managedContainer: Type.Unsafe<boolean>(MODE.managedContainer),
 //   externalUrl:      Type.Unsafe<string>(MODE.externalUrl),
 //
 // A bare fragment spread directly into `Type.Object({...})` compiles under
 // typebox 1.x and FAILS under @sinclair/typebox 0.34 ("missing the following
-// properties from type 'TSchema': params, static, [Kind]"), so the `Type.Unsafe`
-// wrapper is not optional.
+// properties from type 'TSchema': params, static, [Kind]"), so the
+// `Type.Unsafe` wrapper is not optional.
+//
+// `Type.Unsafe` emits the same keys and values as `Type.Boolean`/`Type.String`
+// but in a different ORDER (`type` first rather than last). JSON Schema and
+// RJSF both ignore key order; compare with sorted keys if you assert on the
+// emitted schema while migrating a plugin.
 
 /** A JSON Schema fragment: plain data, safe to `JSON.stringify`. */
 export interface JsonSchemaFragment {

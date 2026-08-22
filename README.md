@@ -381,6 +381,27 @@ than last); that is meaningless to JSON Schema and to the Admin UI's form
 renderer, so compare with sorted keys if you assert on the emitted schema while
 migrating.
 
+#### Why not just move every plugin to `typebox` 1.x?
+
+Because it would not remove the split. `@signalk/server-api` depends on
+`@sinclair/typebox` 0.34 itself, so the scoped package sits in every consumer's
+dependency tree regardless of which one the plugin picks for its own schema —
+`signalk-questdb` already resolves **both** today. Migrating a plugin adds a
+second TypeBox beside the first rather than replacing it.
+
+Migrating is still reasonable on its own merits: `@sinclair/typebox` is frozen
+at 0.34.52 (TypeBox 1.x was republished under the unscoped `typebox` name
+instead of taking a major bump), so plugins on the scoped package are on a line
+that receives no further fixes. For the constructs these plugins actually use —
+`Object`, `String`, `Boolean`, `Number`, `Literal`, `Union`, `Array` — the two
+versions emit semantically identical JSON Schema (verified; only key order
+differs), and `Type`/`Static` import the same way, so it is a per-plugin import
+swap rather than a port.
+
+What it is not is a prerequisite for this API. Emitting plain JSON Schema keeps
+this module out of the question entirely, and works before, during and after any
+such migration.
+
 Spreading `MODE.defaults` matters because Signal K uses a schema `default` only
 to seed the _form_, never the config object a plugin receives — which is why
 every consumer hand-writes a `SCHEMA_DEFAULTS` beside its schema, and why those
