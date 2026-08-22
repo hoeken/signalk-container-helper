@@ -157,6 +157,28 @@ field from _its own_ app object — so you get
 | A private writable area in the SK data tree | `signalkDataMount` (signalk-container's)         |
 | The whole SK config root                    | `signalkConfigRootMount` (incl. `security.json`) |
 | **Your own plugin's data dir**              | **`resolveMount()`** + a `volumes` entry         |
+| **Is there a GPU / device on the host?**    | **`probeHostDevice()`**                          |
+
+`probeHostDevice(manager, path)` answers whether the **host** has a device,
+which a plugin cannot determine itself — `stat("/dev/dri")` describes the
+plugin's own filesystem, and that is the Signal K container whenever Signal K
+is containerized:
+
+```ts
+import { probeHostDevice } from "signalk-container-helper";
+
+const gpu = await probeHostDevice(manager, "/dev/dri");
+if (gpu?.exists) {
+  config.devices = ["/dev/dri"];
+  config.groupAdd = gpu.groups; // names, resolved on the host
+}
+```
+
+`null` means **unknown** (no runtime, or the host could not be read) and is
+deliberately distinct from `{ exists: false }` — assume no device, but do not
+report it as absent. Throws `ContainerHelperError('unsupported-manager')` on
+signalk-container older than 1.30.0, so catch it if you would rather degrade
+than fail. Works on both Docker and rootless podman.
 
 `resolveMount` translates any absolute host path into a mount the container
 runtime can actually bind, on bare-metal and containerized Signal K alike:
