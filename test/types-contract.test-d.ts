@@ -193,3 +193,25 @@ type MissingFromMirror = Exclude<
 // conditional type that returns a tuple of the missing names — that evaluates
 // instead of erroring, and passes under real drift.
 export type _ManagerCoverage = Assignable<MissingFromMirror, never>;
+
+// --- managedModeSchema defaults keep their key names -------------------------
+// `defaults` is spread straight into a consumer's typed SCHEMA_DEFAULTS. Typed
+// as `Record<string, boolean | string>` (as it was in 0.8.0) that spread does
+// NOT satisfy the consumer's Config — TS cannot see which keys it supplies, so
+// every consumer hits "missing the following properties: managedContainer,
+// externalUrl". Found migrating signalk-tailscale, the first real consumer.
+import { managedModeSchema } from "../src/schema.js";
+
+type DefaultShaped = { managedContainer: boolean; externalUrl: string };
+const _modeDefaults: DefaultShaped = {
+  ...managedModeSchema({ productName: "X" }).defaults,
+};
+void _modeDefaults;
+
+// A custom urlFieldName must carry through to the type, not widen to string.
+type RenamedShaped = { managedContainer: boolean; serverUrl: string };
+const _renamedDefaults: RenamedShaped = {
+  ...managedModeSchema({ productName: "X", urlFieldName: "serverUrl" })
+    .defaults,
+};
+void _renamedDefaults;

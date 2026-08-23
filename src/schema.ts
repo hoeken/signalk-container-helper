@@ -38,7 +38,7 @@ export interface JsonSchemaFragment {
   readonly [key: string]: unknown;
 }
 
-export interface ManagedModeSchemaOptions {
+export interface ManagedModeSchemaOptions<U extends string = "externalUrl"> {
   /** Product noun used in every string, e.g. "backup-server", "QuestDB". */
   productName: string;
   /**
@@ -49,14 +49,14 @@ export interface ManagedModeSchemaOptions {
   /** Example shown in the URL field, e.g. "http://192.168.1.50:3010". */
   exampleUrl?: string;
   /** Property name of the URL field. Default "externalUrl". */
-  urlFieldName?: string;
+  urlFieldName?: U;
   /** Title override for the URL field. */
   urlTitle?: string;
   /** Default for the toggle. Default true. */
   defaultManaged?: boolean;
 }
 
-export interface ManagedModeSchema {
+export interface ManagedModeSchema<U extends string = "externalUrl"> {
   managedContainer: JsonSchemaFragment;
   externalUrl: JsonSchemaFragment;
   /**
@@ -67,7 +67,7 @@ export interface ManagedModeSchema {
    * SCHEMA_DEFAULTS object beside its schema. Spreading this instead keeps the
    * two derived from the same literals, which is where the drift was.
    */
-  defaults: Record<string, boolean | string>;
+  defaults: { managedContainer: boolean } & { [K in U]: string };
 }
 
 /**
@@ -77,14 +77,14 @@ export interface ManagedModeSchema {
  * hosted somewhere else" — NOT "is there a container engine on another
  * machine". signalk-container drives local unix sockets only.
  */
-export function managedModeSchema(
-  options: ManagedModeSchemaOptions,
-): ManagedModeSchema {
+export function managedModeSchema<U extends string = "externalUrl">(
+  options: ManagedModeSchemaOptions<U>,
+): ManagedModeSchema<U> {
   const {
     productName,
     image,
     exampleUrl,
-    urlFieldName = "externalUrl",
+    urlFieldName = "externalUrl" as U,
     urlTitle,
     defaultManaged = true,
   } = options;
@@ -119,9 +119,12 @@ export function managedModeSchema(
   return {
     managedContainer,
     externalUrl,
+    // Cast: TS cannot see that a computed key of type U satisfies
+    // `{ [K in U]: string }` when U is generic. The value is correct by
+    // construction — urlFieldName IS the key, and its default IS "".
     defaults: {
       managedContainer: defaultManaged,
       [urlFieldName]: "",
-    },
+    } as { managedContainer: boolean } & { [K in U]: string },
   };
 }
