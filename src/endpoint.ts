@@ -16,7 +16,7 @@ import { waitForHttpReady } from "./http.js";
 import { retryForever, type RetryForeverOptions } from "./retry.js";
 import { ContainerHelperError } from "./util.js";
 import { normalizeExternalUrl } from "./url.js";
-import { resolveContainerAddress } from "./resolve-address.js";
+import { resolveContainerEndpoint } from "./resolve-address.js";
 import { getContainerManager } from "./manager.js";
 import type { ContainerManagerApi } from "./types.js";
 
@@ -172,7 +172,7 @@ export async function resolveEndpoint(
   // rejects because ensureRunning has not run yet.
   const address = container
     ? await container.resolveAddress(port)
-    : await resolveContainerAddress(
+    : await resolveContainerEndpoint(
         manager ?? getContainerManager(),
         containerName!,
         port,

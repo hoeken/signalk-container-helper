@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   matchContainerInfo,
   matchesLegacyName,
-  resolveContainerAddress,
+  resolveContainerEndpoint,
 } from "../src/resolve-address.js";
 import type { ContainerInfo, ContainerManagerApi } from "../src/types.js";
 
@@ -63,10 +63,10 @@ describe("matchContainerInfo", () => {
   });
 });
 
-describe("resolveContainerAddress", () => {
+describe("resolveContainerEndpoint", () => {
   it("returns the resolver's answer when it has one", async () => {
     const m = managerWith(async () => "127.0.0.1:9000");
-    expect(await resolveContainerAddress(m, "questdb", 9000)).toBe(
+    expect(await resolveContainerEndpoint(m, "questdb", 9000)).toBe(
       "127.0.0.1:9000",
     );
   });
@@ -80,7 +80,7 @@ describe("resolveContainerAddress", () => {
     }, [
       info({ unprefixedName: "questdb", ports: ["0.0.0.0:33001->9000/tcp"] }),
     ]);
-    expect(await resolveContainerAddress(m, "questdb", 9000)).toBe(
+    expect(await resolveContainerEndpoint(m, "questdb", 9000)).toBe(
       "0.0.0.0:33001",
     );
   });
@@ -95,7 +95,7 @@ describe("resolveContainerAddress", () => {
         }),
       ],
     );
-    expect(await resolveContainerAddress(m, "questdb", 9000)).toBe(
+    expect(await resolveContainerEndpoint(m, "questdb", 9000)).toBe(
       "127.0.0.1:9999",
     );
   });
@@ -110,14 +110,14 @@ describe("resolveContainerAddress", () => {
         }),
       ],
     );
-    expect(await resolveContainerAddress(m, "questdb", 9000)).toBe(
+    expect(await resolveContainerEndpoint(m, "questdb", 9000)).toBe(
       "127.0.0.1:2222",
     );
   });
 
   it("returns null with no manager, and never throws", async () => {
     expect(
-      await resolveContainerAddress(undefined, "questdb", 9000),
+      await resolveContainerEndpoint(undefined, "questdb", 9000),
     ).toBeNull();
     const broken = {
       resolveContainerAddress: async () => {
@@ -127,7 +127,42 @@ describe("resolveContainerAddress", () => {
         throw new Error("also boom");
       },
     } as unknown as ContainerManagerApi;
-    expect(await resolveContainerAddress(broken, "questdb", 9000)).toBeNull();
+    expect(await resolveContainerEndpoint(broken, "questdb", 9000)).toBeNull();
+  });
+
+  it("degrades on a manager missing either method", async () => {
+    // Feature detection is the norm across this ecosystem; an older manager
+    // may not have both. Neither absence may throw.
+    const noList = {
+      resolveContainerAddress: async () => null,
+    } as unknown as ContainerManagerApi;
+    expect(await resolveContainerEndpoint(noList, "x", 9000)).toBeNull();
+
+    const noResolve = {
+      listContainers: async () => [
+        info({ unprefixedName: "x", ports: ["127.0.0.1:7777->9000/tcp"] }),
+      ],
+    } as unknown as ContainerManagerApi;
+    expect(await resolveContainerEndpoint(noResolve, "x", 9000)).toBe(
+      "127.0.0.1:7777",
+    );
+  });
+
+  it("does not match a port that merely ends with the requested digits", async () => {
+    // 19000 must not satisfy a request for 9000.
+    const m = managerWith(
+      async () => null,
+      [info({ unprefixedName: "x", ports: ["127.0.0.1:2222->19000/tcp"] })],
+    );
+    expect(await resolveContainerEndpoint(m, "x", 9000)).toBeNull();
+  });
+
+  it("ignores a udp binding for the same port number", async () => {
+    const m = managerWith(
+      async () => null,
+      [info({ unprefixedName: "x", ports: ["127.0.0.1:3333->9000/udp"] })],
+    );
+    expect(await resolveContainerEndpoint(m, "x", 9000)).toBeNull();
   });
 
   it("reports both failures through the debug sink", async () => {
@@ -140,7 +175,7 @@ describe("resolveContainerAddress", () => {
         throw new Error("also boom");
       },
     } as unknown as ContainerManagerApi;
-    await resolveContainerAddress(broken, "questdb", 9000, debug);
+    await resolveContainerEndpoint(broken, "questdb", 9000, debug);
     expect(debug).toHaveBeenCalledTimes(2);
   });
 });

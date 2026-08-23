@@ -36,7 +36,7 @@ export type {
 } from "./endpoint.js";
 export { normalizeExternalUrl } from "./url.js";
 export {
-  resolveContainerAddress,
+  resolveContainerEndpoint,
   matchContainerInfo,
   matchesLegacyName,
 } from "./resolve-address.js";

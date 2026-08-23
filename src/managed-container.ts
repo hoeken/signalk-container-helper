@@ -16,7 +16,7 @@ import { waitForHttpReady, type FetchLike } from "./http.js";
 import { anySignal, retryForever, type RetryForeverOptions } from "./retry.js";
 import {
   matchContainerInfo,
-  resolveContainerAddress,
+  resolveContainerEndpoint,
 } from "./resolve-address.js";
 import {
   ContainerHelperError,
@@ -483,7 +483,7 @@ export class ManagedContainer {
    * signalk-backup). Returns null when both fail; never throws.
    */
   async resolveAddress(port: number): Promise<string | null> {
-    return resolveContainerAddress(
+    return resolveContainerEndpoint(
       this.manager ?? getContainerManager(),
       this.options.name,
       port,

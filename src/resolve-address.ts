@@ -56,7 +56,7 @@ export function matchesLegacyName(liveName: string, name: string): boolean {
  * so a caller ordering its startup differently degrades to the fallback
  * instead of failing.
  */
-export async function resolveContainerAddress(
+export async function resolveContainerEndpoint(
   manager: ContainerManagerApi | undefined,
   containerName: string,
   containerPort: number,
