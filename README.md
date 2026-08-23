@@ -329,6 +329,42 @@ const client = new ShimClient(endpoint.baseUrl);
 transport half of your plugin stops caring which mode it is in. `endpoint.mode`
 is there for the parts that legitimately differ.
 
+### If you drive `ensureRunning` yourself
+
+`container` is for plugins that hand their lifecycle to `ManagedContainer`.
+Plenty do not — calling `ensureRunning`/`pullImage`/`stop` directly is a
+perfectly good pattern, and address resolution needs none of that lifecycle.
+Give a `containerName` instead:
+
+```ts
+const endpoint = await resolveEndpoint({
+  managed: settings.managedContainer,
+  externalUrl: settings.externalUrl,
+  containerName: CONTAINER_NAME, // unprefixed
+  manager, // optional; defaults to the globalThis one
+  port: API_PORT,
+  productName: "signalk-tailscale-server",
+  debug: (msg) => app.debug(msg),
+});
+```
+
+`endpoint.container` is null in that form. Use `endpoint.mode` to decide
+managed-versus-external behaviour, and null-check `container` separately
+before touching it — `mode === "managed"` does not imply a container is
+there.
+
+`resolveContainerEndpoint(manager, name, port, debug?)` is exported on its own
+if you only want the address. It asks the manager first and falls back to
+parsing `listContainers()` port bindings — the resolver's process-local cache
+can go stale after a recreate, and it _throws_ (rather than returning null)
+when the port was declared in `signalkAccessiblePorts` but `ensureRunning()`
+has not run yet. Both are handled; it never throws.
+
+It also matches the live container by `unprefixedName`, falling back to any
+`<namespace>-<name>` form. A hand-rolled `sk-<name>` comparison — which is what
+the copies of this logic tended to be — silently finds nothing under a
+non-default `SIGNALK_CONTAINER_NAMESPACE`.
+
 ### Pass the raw config value
 
 `managed` is `boolean | undefined`, and **`undefined` means managed**. Signal K
@@ -672,29 +708,31 @@ Adopt these even where you don't use the components:
 
 ## API overview
 
-| Export                           | Purpose                                                                                                                                                                                                                                                                                  |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ManagedContainer`               | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes`                                                                                                                                             |
-| `AdoptedContainer`               | Update registration + checks for externally-managed containers                                                                                                                                                                                                                           |
-| `getContainerManager()`          | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
-| `waitForContainerManager(opts)`  | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
-| `resolveMount(manager, opts)`    | Translate an absolute host path into a mountable `{ source, containerPath, subPath }` — how you mount **your own** plugin's data dir (see [Mounting your plugin's own data directory](#mounting-your-plugins-own-data-directory))                                                        |
-| `resolveEndpoint(opts)`          | Resolve the base URL for a managed container or a self-hosted service — pass the RAW `managedContainer` value (`undefined` means managed)                                                                                                                                                |
-| `waitForEndpointReady(ep, opts)` | Wait until a resolved endpoint answers 2xx. One attempt unless `retry` is given                                                                                                                                                                                                          |
-| `isManagedMode(value)`           | The `!== false` rule, named — for route guards and status fields                                                                                                                                                                                                                         |
-| `normalizeExternalUrl(raw)`      | Normalise operator-typed input into a base URL (scheme defaulted, trailing slash stripped, path discarded); `null` when unusable                                                                                                                                                         |
-| `managedModeSchema(opts)`        | The two config fields as plain JSON Schema + matching defaults (`signalk-container-helper/schema`)                                                                                                                                                                                       |
-| `waitForHttpReady(url, opts)`    | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
-| `retryForever(fn, opts)`         | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
-| `anySignal(signals)`             | Compose several `AbortSignal`s into one that aborts when any does (`undefined` when none are given)                                                                                                                                                                                      |
-| `probeHttpHealth(url, opts)`     | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
-| `fetchWithTimeout(url, opts)`    | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
-| `throwIfAborted(signal)`         | Throw `ContainerHelperError` `cancelled` if the signal has fired — the check the lifecycle methods run between steps                                                                                                                                                                     |
-| `startSafely(app, fn)`           | Sync wrapper for async plugin startup — Signal K does not await `start()`                                                                                                                                                                                                                |
-| `isValidImageTag(tag)`           | Tag guard (`IMAGE_TAG_PATTERN`)                                                                                                                                                                                                                                                          |
-| `errMsg(err)`                    | Normalize unknown errors to strings                                                                                                                                                                                                                                                      |
-| `ContainerHelperError`           | Typed error with `code` and `reported`                                                                                                                                                                                                                                                   |
-| Types                            | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
+| Export                                                  | Purpose                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ManagedContainer`                                      | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes`                                                                                                                                             |
+| `AdoptedContainer`                                      | Update registration + checks for externally-managed containers                                                                                                                                                                                                                           |
+| `getContainerManager()`                                 | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
+| `waitForContainerManager(opts)`                         | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
+| `resolveMount(manager, opts)`                           | Translate an absolute host path into a mountable `{ source, containerPath, subPath }` — how you mount **your own** plugin's data dir (see [Mounting your plugin's own data directory](#mounting-your-plugins-own-data-directory))                                                        |
+| `resolveEndpoint(opts)`                                 | Resolve the base URL for a managed container or a self-hosted service — pass the RAW `managedContainer` value (`undefined` means managed)                                                                                                                                                |
+| `waitForEndpointReady(ep, opts)`                        | Wait until a resolved endpoint answers 2xx. One attempt unless `retry` is given                                                                                                                                                                                                          |
+| `isManagedMode(value)`                                  | The `!== false` rule, named — for route guards and status fields                                                                                                                                                                                                                         |
+| `resolveContainerEndpoint(manager, name, port, debug?)` | `host:port` for a container port, or null. Resolver first, then `listContainers()` port bindings; never throws                                                                                                                                                                           |
+| `matchContainerInfo(list, name)`                        | Find the live container for an unprefixed managed name, honouring `unprefixedName` and any namespace prefix                                                                                                                                                                              |
+| `normalizeExternalUrl(raw)`                             | Normalise operator-typed input into a base URL (scheme defaulted, trailing slash stripped, path discarded); `null` when unusable                                                                                                                                                         |
+| `managedModeSchema(opts)`                               | The two config fields as plain JSON Schema + matching defaults (`signalk-container-helper/schema`)                                                                                                                                                                                       |
+| `waitForHttpReady(url, opts)`                           | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
+| `retryForever(fn, opts)`                                | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
+| `anySignal(signals)`                                    | Compose several `AbortSignal`s into one that aborts when any does (`undefined` when none are given)                                                                                                                                                                                      |
+| `probeHttpHealth(url, opts)`                            | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
+| `fetchWithTimeout(url, opts)`                           | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
+| `throwIfAborted(signal)`                                | Throw `ContainerHelperError` `cancelled` if the signal has fired — the check the lifecycle methods run between steps                                                                                                                                                                     |
+| `startSafely(app, fn)`                                  | Sync wrapper for async plugin startup — Signal K does not await `start()`                                                                                                                                                                                                                |
+| `isValidImageTag(tag)`                                  | Tag guard (`IMAGE_TAG_PATTERN`)                                                                                                                                                                                                                                                          |
+| `errMsg(err)`                                           | Normalize unknown errors to strings                                                                                                                                                                                                                                                      |
+| `ContainerHelperError`                                  | Typed error with `code` and `reported`                                                                                                                                                                                                                                                   |
+| Types                                                   | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
 
 ### Error codes
 

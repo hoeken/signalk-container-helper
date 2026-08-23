@@ -15,6 +15,10 @@ import {
 import { waitForHttpReady, type FetchLike } from "./http.js";
 import { anySignal, retryForever, type RetryForeverOptions } from "./retry.js";
 import {
+  matchContainerInfo,
+  resolveContainerEndpoint,
+} from "./resolve-address.js";
+import {
   ContainerHelperError,
   errMsg,
   isValidImageTag,
@@ -269,15 +273,7 @@ export class ManagedContainer {
    * a foreign container like `otherns-app-<name>` would false-match.
    */
   private matchInfo(list: ContainerInfo[]): ContainerInfo | undefined {
-    const { name } = this.options;
-    // Two passes so the reliable key wins regardless of list order: an
-    // exact unprefixedName match anywhere beats a legacy prefix match.
-    return (
-      list.find((c) => c.unprefixedName === name) ??
-      list.find(
-        (c) => c.unprefixedName === undefined && this.matchesLegacyName(c.name),
-      )
-    );
+    return matchContainerInfo(list, this.options.name);
   }
 
   /**
@@ -285,14 +281,6 @@ export class ManagedContainer {
    * `unprefixedName`) signalk-container: either the bare name, or
    * `<namespace>-<name>` where namespace is a single `[a-z0-9]+` token.
    */
-  private matchesLegacyName(liveName: string): boolean {
-    const { name } = this.options;
-    if (liveName === name) return true;
-    const suffix = `-${name}`;
-    if (!liveName.endsWith(suffix)) return false;
-    const prefix = liveName.slice(0, -suffix.length);
-    return /^[a-z0-9]+$/.test(prefix);
-  }
 
   /**
    * Full bring-up: wait for the manager and runtime, validate the tag,
@@ -495,29 +483,12 @@ export class ManagedContainer {
    * signalk-backup). Returns null when both fail; never throws.
    */
   async resolveAddress(port: number): Promise<string | null> {
-    const manager = this.manager ?? getContainerManager();
-    if (!manager) return null;
-    try {
-      const answer = await manager.resolveContainerAddress(
-        this.options.name,
-        port,
-      );
-      if (answer) return answer;
-    } catch (err) {
-      this.app.debug(`resolveContainerAddress failed: ${errMsg(err)}`);
-    }
-    try {
-      const found = this.matchInfo(await manager.listContainers());
-      const wanted = `->${port}/tcp`;
-      for (const entry of found?.ports ?? []) {
-        if (!entry.endsWith(wanted)) continue;
-        const hostPart = entry.slice(0, -wanted.length);
-        if (hostPart.includes(":")) return hostPart;
-      }
-    } catch (err) {
-      this.app.debug(`listContainers port fallback failed: ${errMsg(err)}`);
-    }
-    return null;
+    return resolveContainerEndpoint(
+      this.manager ?? getContainerManager(),
+      this.options.name,
+      port,
+      (msg) => this.app.debug(msg),
+    );
   }
 
   /**
