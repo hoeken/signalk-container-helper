@@ -16,6 +16,9 @@ import { waitForHttpReady } from "./http.js";
 import { retryForever, type RetryForeverOptions } from "./retry.js";
 import { ContainerHelperError } from "./util.js";
 import { normalizeExternalUrl } from "./url.js";
+import { resolveContainerAddress } from "./resolve-address.js";
+import { getContainerManager } from "./manager.js";
+import type { ContainerManagerApi } from "./types.js";
 
 export type EndpointMode = "managed" | "external";
 
@@ -30,7 +33,11 @@ export interface ResolvedEndpoint {
    * type keeps the door open for a manager that cannot answer.
    */
   address: string | null;
-  /** The container, in managed mode only — null when self-hosted. */
+  /**
+   * The ManagedContainer, when one was passed. Null in self-hosted mode, and
+   * also in managed mode when the `containerName` form was used — so narrow on
+   * `mode`, not on this.
+   */
   container: ManagedContainer | null;
 }
 
@@ -43,10 +50,31 @@ export interface ResolveEndpointOptions {
   managed: boolean | undefined;
   /** Raw operator input; normalised internally. Self-hosted mode only. */
   externalUrl?: string;
-  /** Required in managed mode. Pass one that has already been started. */
+  /**
+   * Managed mode, if you use ManagedContainer. Pass one that has already been
+   * started.
+   */
   container?: ManagedContainer;
+  /**
+   * Managed mode, if you drive `ensureRunning` yourself: the unprefixed
+   * container name. Give this instead of `container`.
+   *
+   * Not every plugin hands its container lifecycle to ManagedContainer — two
+   * of the three reference plugins call `ensureRunning`/`pullImage`/`stop`
+   * directly — and address resolution needs none of that lifecycle, only a
+   * manager and a name.
+   */
+  containerName?: string;
+  /**
+   * Manager to resolve against when using `containerName`. Defaults to the
+   * `globalThis` one, so a plugin that already waited for it can just pass
+   * the name.
+   */
+  manager?: ContainerManagerApi;
   /** Container port to resolve in managed mode. */
   port?: number;
+  /** Debug sink for the resolution attempts. */
+  debug?: (msg: string) => void;
   /** Product noun for error copy, e.g. "backup-server". */
   productName: string;
   /** Config key named in the empty-URL error. Default "externalUrl". */
@@ -93,6 +121,9 @@ export async function resolveEndpoint(
     productName,
     urlFieldName = "externalUrl",
     defaultPort,
+    containerName,
+    manager,
+    debug,
   } = options;
 
   if (!isManagedMode(managed)) {
@@ -121,10 +152,10 @@ export async function resolveEndpoint(
     };
   }
 
-  if (!container) {
+  if (!container && !containerName) {
     throw new ContainerHelperError(
       "invalid-option",
-      `${productName}: resolveEndpoint requires a ManagedContainer in managed mode.`,
+      `${productName}: resolveEndpoint needs either a ManagedContainer or a containerName in managed mode.`,
     );
   }
   if (typeof port !== "number") {
@@ -134,9 +165,16 @@ export async function resolveEndpoint(
     );
   }
 
-  // resolveAddress never throws — it already absorbs the case where
-  // resolveContainerAddress rejects because ensureRunning has not run yet.
-  const address = await container.resolveAddress(port);
+  // Neither form throws: both absorb the case where resolveContainerAddress
+  // rejects because ensureRunning has not run yet.
+  const address = container
+    ? await container.resolveAddress(port)
+    : await resolveContainerAddress(
+        manager ?? getContainerManager(),
+        containerName!,
+        port,
+        debug,
+      );
   if (!address) {
     throw new ContainerHelperError(
       "address-unresolved",
@@ -149,7 +187,7 @@ export async function resolveEndpoint(
     mode: "managed",
     baseUrl: `http://${address}`,
     address,
-    container,
+    container: container ?? null,
   };
 }
 

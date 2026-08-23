@@ -93,6 +93,73 @@ describe("resolveEndpoint — managed", () => {
   });
 });
 
+describe("resolveEndpoint — managed via containerName", () => {
+  // Not every plugin hands its lifecycle to ManagedContainer: two of the three
+  // reference plugins call ensureRunning directly, and address resolution
+  // needs no lifecycle at all.
+  const managerWith = (
+    resolve: () => Promise<string | null>,
+    list: unknown[] = [],
+  ) =>
+    ({
+      resolveContainerAddress: vi.fn(resolve),
+      listContainers: vi.fn(async () => list),
+    }) as never;
+
+  it("resolves without a ManagedContainer", async () => {
+    const ep = await resolveEndpoint({
+      managed: true,
+      containerName: "tailscale",
+      manager: managerWith(async () => "127.0.0.1:3020"),
+      port: 3020,
+      productName: "T",
+    });
+    expect(ep.mode).toBe("managed");
+    expect(ep.baseUrl).toBe("http://127.0.0.1:3020");
+    // No ManagedContainer was passed, so there is none to hand back.
+    expect(ep.container).toBeNull();
+  });
+
+  it("falls back to port bindings under a non-default namespace", async () => {
+    // A hand-rolled `sk-${name}` match misses this; unprefixedName does not.
+    const ep = await resolveEndpoint({
+      managed: true,
+      containerName: "tailscale",
+      manager: managerWith(
+        async () => null,
+        [
+          {
+            name: "devpod-tailscale",
+            unprefixedName: "tailscale",
+            ports: ["127.0.0.1:9999->3020/tcp"],
+          },
+        ],
+      ),
+      port: 3020,
+      productName: "T",
+    });
+    expect(ep.baseUrl).toBe("http://127.0.0.1:9999");
+  });
+
+  it("throws address-unresolved when nothing answers", async () => {
+    await expect(
+      resolveEndpoint({
+        managed: true,
+        containerName: "tailscale",
+        manager: managerWith(async () => null),
+        port: 3020,
+        productName: "T",
+      }),
+    ).rejects.toMatchObject({ code: "address-unresolved" });
+  });
+
+  it("requires one of container or containerName", async () => {
+    await expect(
+      resolveEndpoint({ managed: true, port: 3020, productName: "T" }),
+    ).rejects.toMatchObject({ code: "invalid-option" });
+  });
+});
+
 describe("resolveEndpoint — self-hosted", () => {
   it("normalises the operator URL", async () => {
     const ep = await resolveEndpoint({

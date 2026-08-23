@@ -35,6 +35,11 @@ export type {
   EndpointReadyOptions,
 } from "./endpoint.js";
 export { normalizeExternalUrl } from "./url.js";
+export {
+  resolveContainerAddress,
+  matchContainerInfo,
+  matchesLegacyName,
+} from "./resolve-address.js";
 export type { NormalizeUrlOptions, NormalizedUrl } from "./url.js";
 export { managedModeSchema } from "./schema.js";
 export type {
