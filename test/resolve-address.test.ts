@@ -130,6 +130,32 @@ describe("resolveContainerEndpoint", () => {
     expect(await resolveContainerEndpoint(broken, "questdb", 9000)).toBeNull();
   });
 
+  it("prefers the resolver over live bindings — the order is load-bearing", async () => {
+    // The resolver is not a cache of the port bindings; it is the authority on
+    // which of signalk-container's three address strategies applies. Under
+    // shared-netns the correct address is 127.0.0.1:<containerPort>, while
+    // listContainers() may still report a published host binding that would be
+    // the WRONG address. Checking bindings first would silently break that
+    // topology (and the container-DNS one), so the fallback stays a fallback.
+    const sharedNetns = managerWith(
+      async () => "127.0.0.1:9000",
+      [info({ unprefixedName: "x", ports: ["0.0.0.0:33999->9000/tcp"] })],
+    );
+    expect(await resolveContainerEndpoint(sharedNetns, "x", 9000)).toBe(
+      "127.0.0.1:9000",
+    );
+
+    // Container-DNS topology: the resolver returns a DNS name and the
+    // container publishes no host port at all.
+    const containerDns = managerWith(
+      async () => "sk-x:9000",
+      [info({ unprefixedName: "x", ports: [] })],
+    );
+    expect(await resolveContainerEndpoint(containerDns, "x", 9000)).toBe(
+      "sk-x:9000",
+    );
+  });
+
   it("degrades on a manager missing either method", async () => {
     // Feature detection is the norm across this ecosystem; an older manager
     // may not have both. Neither absence may throw.
