@@ -348,8 +348,10 @@ const endpoint = await resolveEndpoint({
 });
 ```
 
-`endpoint.container` is null in that form, so narrow on `endpoint.mode`, never
-on `container`.
+`endpoint.container` is null in that form. Use `endpoint.mode` to decide
+managed-versus-external behaviour, and null-check `container` separately
+before touching it — `mode === "managed"` does not imply a container is
+there.
 
 `resolveContainerAddress(manager, name, port, debug?)` is exported on its own
 if you only want the address. It asks the manager first and falls back to

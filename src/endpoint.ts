@@ -34,9 +34,12 @@ export interface ResolvedEndpoint {
    */
   address: string | null;
   /**
-   * The ManagedContainer, when one was passed. Null in self-hosted mode, and
-   * also in managed mode when the `containerName` form was used — so narrow on
-   * `mode`, not on this.
+   * The ManagedContainer, when one was passed. Null in self-hosted mode, AND
+   * in managed mode when the `containerName` form was used.
+   *
+   * So: use `mode` to decide managed-versus-external behaviour, and null-check
+   * this field separately before touching the instance. `mode === "managed"`
+   * does not imply a container is here.
    */
   container: ManagedContainer | null;
 }
