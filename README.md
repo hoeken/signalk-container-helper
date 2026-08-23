@@ -426,6 +426,34 @@ export const SCHEMA_DEFAULTS: Config = {
 };
 ```
 
+### Hiding the URL field when it does not apply
+
+By default the URL field is always rendered, including while the container is
+managed — where it does nothing. Splice in `dependencies` to have it appear
+only when the toggle is off:
+
+```ts
+export const ConfigSchema = Type.Object(
+  {
+    managedContainer: Type.Unsafe<boolean>(MODE.managedContainer),
+    externalUrl: Type.Unsafe<string>(MODE.externalUrl),
+    // …your own fields
+  },
+  { dependencies: MODE.dependencies },
+);
+```
+
+Keep `externalUrl` in `properties` as well: that is what types it into
+`Static<>` and keeps `SCHEMA_DEFAULTS` honest. The dependency governs when it
+is _rendered_, not whether it exists.
+
+This is live — RJSF re-evaluates `dependencies` on every change, so the field
+appears the instant the toggle is switched off. A `uiSchema` `ui:disabled`
+cannot do that: a plugin's uiSchema is fetched once when the form loads, so a
+greyed-out field would stay greyed until a page reload.
+
+Optional. Omit `dependencies` to keep the field always visible.
+
 `Type.Unsafe` is not optional. A bare fragment spread straight into
 `Type.Object({...})` compiles under `typebox` 1.x and **fails** under
 `@sinclair/typebox` 0.34 (`missing the following properties from type
