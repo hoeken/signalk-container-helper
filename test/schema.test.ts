@@ -115,6 +115,25 @@ describe("managedModeSchema", () => {
     );
   });
 
+  it("does NOT duplicate the URL field into properties", () => {
+    // The trap this whole feature fell into once: RJSF renders anything in
+    // `properties` regardless of the dependency, so a consumer who keeps
+    // externalUrl in BOTH places gets a field that never hides. The fragment
+    // and the dependency are therefore returned separately, and the README
+    // tells consumers to splice only one of them.
+    const m = managedModeSchema(OPTS);
+    const dep = m.dependencies as {
+      managedContainer: { oneOf: { properties: Record<string, unknown> }[] };
+    };
+    // The managed branch must contribute NOTHING but the discriminator.
+    expect(Object.keys(dep.managedContainer.oneOf[0]!.properties)).toEqual([
+      "managedContainer",
+    ]);
+    // And the URL fragment must still be reachable on its own, for consumers
+    // that want the field always visible instead.
+    expect(m.externalUrl.type).toBe("string");
+  });
+
   it("emits pure JSON — the property that makes Type.Unsafe work", () => {
     // Both TypeBox packages accept these only because they are plain data:
     // no symbols, no functions, no class instances.

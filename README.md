@@ -433,19 +433,38 @@ managed — where it does nothing. Splice in `dependencies` to have it appear
 only when the toggle is off:
 
 ```ts
+import {
+  managedModeSchema,
+  type WithExternalUrl,
+} from "signalk-container-helper/schema";
+
+// NOTE: externalUrl is deliberately NOT in `properties` — see below.
 export const ConfigSchema = Type.Object(
   {
     managedContainer: Type.Unsafe<boolean>(MODE.managedContainer),
-    externalUrl: Type.Unsafe<string>(MODE.externalUrl),
     // …your own fields
   },
   { dependencies: MODE.dependencies },
 );
+
+export type Config = WithExternalUrl<Static<typeof ConfigSchema>>;
 ```
 
-Keep `externalUrl` in `properties` as well: that is what types it into
-`Static<>` and keeps `SCHEMA_DEFAULTS` honest. The dependency governs when it
-is _rendered_, not whether it exists.
+**`externalUrl` must be left out of `properties`.** RJSF renders everything in
+`properties` regardless of what the dependency says, so leaving it there means
+the field never hides — the dependency simply has no effect.
+
+That has a consequence worth knowing: TypeBox derives `Static<>` from
+`properties` alone, so the field would drop out of your `Config` type and
+every `settings.externalUrl` read would stop compiling. `WithExternalUrl` adds
+it back. Pass the field name as a second argument when it is not
+`externalUrl`:
+
+```ts
+export type Config = WithExternalUrl<Static<typeof S>, "serverUrl">;
+```
+
+`SCHEMA_DEFAULTS` is unaffected — `...MODE.defaults` still supplies both keys.
 
 This is live — RJSF re-evaluates `dependencies` on every change, so the field
 appears the instant the toggle is switched off. A `uiSchema` `ui:disabled`

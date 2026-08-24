@@ -87,6 +87,27 @@ export interface ManagedModeSchema<U extends string = "externalUrl"> {
 }
 
 /**
+ * A plugin's Config type when the URL field is hidden behind `dependencies`.
+ *
+ * Hiding the field means keeping it OUT of `properties` — RJSF renders
+ * anything in `properties` regardless of what the dependency says — and
+ * TypeBox derives `Static<>` from `properties` alone, so the field would
+ * otherwise vanish from the plugin's own Config type and every
+ * `settings.externalUrl` read would stop compiling.
+ *
+ *   export type Config = WithExternalUrl<Static<typeof ConfigSchema>>
+ *
+ * Pass the field name as the second argument when it is not "externalUrl":
+ *
+ *   export type Config = WithExternalUrl<Static<typeof S>, "serverUrl">
+ *
+ * Not needed when the field stays in `properties` (always-visible mode).
+ */
+export type WithExternalUrl<T, U extends string = "externalUrl"> = T & {
+  [K in U]: string;
+};
+
+/**
  * Build the managed/self-hosted config fields for one plugin.
  *
  * The switch means "is this container's lifecycle mine, or is the service
