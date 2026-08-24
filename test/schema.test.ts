@@ -66,6 +66,74 @@ describe("managedModeSchema", () => {
     expect(s.managedContainer.description).not.toContain("undefined");
   });
 
+  it("hides the URL field while the container is managed", () => {
+    // `ui:disabled` cannot do this: a plugin's uiSchema is fetched once when
+    // the form loads, so a greyed-out field would stay greyed until a page
+    // reload. JSON Schema dependencies are re-evaluated by RJSF on every
+    // change, so the field appears the moment the toggle is switched off.
+    const dep = managedModeSchema(OPTS).dependencies as {
+      managedContainer: { oneOf: { properties: Record<string, unknown> }[] };
+    };
+    const [managed, external] = dep.managedContainer.oneOf;
+    expect(Object.keys(managed!.properties)).toEqual(["managedContainer"]);
+    expect(Object.keys(external!.properties).sort()).toEqual([
+      "externalUrl",
+      "managedContainer",
+    ]);
+  });
+
+  it("keys the branches on the toggle's own value", () => {
+    const dep = managedModeSchema(OPTS).dependencies as {
+      managedContainer: {
+        oneOf: { properties: { managedContainer: { const: boolean } } }[];
+      };
+    };
+    const consts = dep.managedContainer.oneOf.map(
+      (b) => b.properties.managedContainer.const,
+    );
+    expect(consts).toEqual([true, false]);
+  });
+
+  it("uses the custom url field name in the dependency too", () => {
+    const dep = managedModeSchema({ ...OPTS, urlFieldName: "serverUrl" })
+      .dependencies as {
+      managedContainer: { oneOf: { properties: Record<string, unknown> }[] };
+    };
+    expect(dep.managedContainer.oneOf[1]!.properties).toHaveProperty(
+      "serverUrl",
+    );
+  });
+
+  it("carries the same URL fragment into the dependency", () => {
+    // Not a second copy that could drift from the standalone one.
+    const m = managedModeSchema(OPTS);
+    const dep = m.dependencies as {
+      managedContainer: { oneOf: { properties: Record<string, unknown> }[] };
+    };
+    expect(dep.managedContainer.oneOf[1]!.properties.externalUrl).toBe(
+      m.externalUrl,
+    );
+  });
+
+  it("does NOT duplicate the URL field into properties", () => {
+    // The trap this whole feature fell into once: RJSF renders anything in
+    // `properties` regardless of the dependency, so a consumer who keeps
+    // externalUrl in BOTH places gets a field that never hides. The fragment
+    // and the dependency are therefore returned separately, and the README
+    // tells consumers to splice only one of them.
+    const m = managedModeSchema(OPTS);
+    const dep = m.dependencies as {
+      managedContainer: { oneOf: { properties: Record<string, unknown> }[] };
+    };
+    // The managed branch must contribute NOTHING but the discriminator.
+    expect(Object.keys(dep.managedContainer.oneOf[0]!.properties)).toEqual([
+      "managedContainer",
+    ]);
+    // And the URL fragment must still be reachable on its own, for consumers
+    // that want the field always visible instead.
+    expect(m.externalUrl.type).toBe("string");
+  });
+
   it("emits pure JSON — the property that makes Type.Unsafe work", () => {
     // Both TypeBox packages accept these only because they are plain data:
     // no symbols, no functions, no class instances.

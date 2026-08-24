@@ -426,6 +426,53 @@ export const SCHEMA_DEFAULTS: Config = {
 };
 ```
 
+### Hiding the URL field when it does not apply
+
+By default the URL field is always rendered, including while the container is
+managed — where it does nothing. Splice in `dependencies` to have it appear
+only when the toggle is off:
+
+```ts
+import {
+  managedModeSchema,
+  type WithExternalUrl,
+} from "signalk-container-helper/schema";
+
+// NOTE: externalUrl is deliberately NOT in `properties` — see below.
+export const ConfigSchema = Type.Object(
+  {
+    managedContainer: Type.Unsafe<boolean>(MODE.managedContainer),
+    // …your own fields
+  },
+  { dependencies: MODE.dependencies },
+);
+
+export type Config = WithExternalUrl<Static<typeof ConfigSchema>>;
+```
+
+**`externalUrl` must be left out of `properties`.** RJSF renders everything in
+`properties` regardless of what the dependency says, so leaving it there means
+the field never hides — the dependency simply has no effect.
+
+That has a consequence worth knowing: TypeBox derives `Static<>` from
+`properties` alone, so the field would drop out of your `Config` type and
+every `settings.externalUrl` read would stop compiling. `WithExternalUrl` adds
+it back. Pass the field name as a second argument when it is not
+`externalUrl`:
+
+```ts
+export type Config = WithExternalUrl<Static<typeof S>, "serverUrl">;
+```
+
+`SCHEMA_DEFAULTS` is unaffected — `...MODE.defaults` still supplies both keys.
+
+This is live — RJSF re-evaluates `dependencies` on every change, so the field
+appears the instant the toggle is switched off. A `uiSchema` `ui:disabled`
+cannot do that: a plugin's uiSchema is fetched once when the form loads, so a
+greyed-out field would stay greyed until a page reload.
+
+Optional. Omit `dependencies` to keep the field always visible.
+
 `Type.Unsafe` is not optional. A bare fragment spread straight into
 `Type.Object({...})` compiles under `typebox` 1.x and **fails** under
 `@sinclair/typebox` 0.34 (`missing the following properties from type

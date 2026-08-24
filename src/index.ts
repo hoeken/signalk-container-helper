@@ -43,6 +43,7 @@ export {
 export type { NormalizeUrlOptions, NormalizedUrl } from "./url.js";
 export { managedModeSchema } from "./schema.js";
 export type {
+  WithExternalUrl,
   JsonSchemaFragment,
   ManagedModeSchema,
   ManagedModeSchemaOptions,

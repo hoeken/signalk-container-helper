@@ -68,7 +68,44 @@ export interface ManagedModeSchema<U extends string = "externalUrl"> {
    * two derived from the same literals, which is where the drift was.
    */
   defaults: { managedContainer: boolean } & { [K in U]: string };
+  /**
+   * JSON Schema `dependencies` that render the URL field ONLY while the
+   * container is not managed. Splice it in beside `properties`:
+   *
+   *   export const ConfigSchema = Type.Object({ … }, {
+   *     dependencies: managedModeSchema({ … }).dependencies,
+   *   })
+   *
+   * Live-reactive: RJSF re-evaluates dependencies on every change, so the
+   * field appears the moment the toggle is switched off. `ui:disabled` cannot
+   * do this — a plugin's uiSchema is fetched once when the form loads, so a
+   * greyed-out field would stay greyed until a page reload.
+   *
+   * Optional. A consumer that wants the field always visible just omits this.
+   */
+  dependencies: Record<string, unknown>;
 }
+
+/**
+ * A plugin's Config type when the URL field is hidden behind `dependencies`.
+ *
+ * Hiding the field means keeping it OUT of `properties` — RJSF renders
+ * anything in `properties` regardless of what the dependency says — and
+ * TypeBox derives `Static<>` from `properties` alone, so the field would
+ * otherwise vanish from the plugin's own Config type and every
+ * `settings.externalUrl` read would stop compiling.
+ *
+ *   export type Config = WithExternalUrl<Static<typeof ConfigSchema>>
+ *
+ * Pass the field name as the second argument when it is not "externalUrl":
+ *
+ *   export type Config = WithExternalUrl<Static<typeof S>, "serverUrl">
+ *
+ * Not needed when the field stays in `properties` (always-visible mode).
+ */
+export type WithExternalUrl<T, U extends string = "externalUrl"> = T & {
+  [K in U]: string;
+};
 
 /**
  * Build the managed/self-hosted config fields for one plugin.
@@ -116,9 +153,28 @@ export function managedModeSchema<U extends string = "externalUrl">(
       `Traffic to this address leaves this host — use an address you trust.`,
   };
 
+  // `oneOf` on the toggle's own value: the true branch adds nothing, the
+  // false branch contributes the URL field. Repeating `managedContainer` in
+  // each branch is what keys the choice — RJSF matches the branch whose
+  // const equals the current value.
+  const dependencies = {
+    managedContainer: {
+      oneOf: [
+        { properties: { managedContainer: { const: true } } },
+        {
+          properties: {
+            managedContainer: { const: false },
+            [urlFieldName]: externalUrl,
+          },
+        },
+      ],
+    },
+  };
+
   return {
     managedContainer,
     externalUrl,
+    dependencies,
     // Cast: TS cannot see that a computed key of type U satisfies
     // `{ [K in U]: string }` when U is generic. The value is correct by
     // construction — urlFieldName IS the key, and its default IS "".
