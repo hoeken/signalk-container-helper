@@ -154,6 +154,7 @@ await container.stop()             // unregister + stop (not remove); never thro
 await container.applyUpdate(tag)   // recreate, or legacy pull+remove+ensureRunning
 await container.checkForUpdate()   // updates.checkOne → UpdateCheckResult | null
 await container.getState()         // ContainerState ('unknown-manager' safe default)
+await container.getStateDetail()   // state + exitCode / oomKilled / restartCount
 await container.getInfo()          // { state, image } for /status routes
 await container.resolveAddress(p)  // resolveContainerAddress + stale-port fallback
 await container.getLogs(opts?)     // feature-detected passthrough

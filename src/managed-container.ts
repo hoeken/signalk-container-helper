@@ -4,6 +4,7 @@ import type {
   ContainerInfo,
   ContainerManagerApi,
   ContainerState,
+  ContainerStateDetail,
   EnsureRunningOptions,
   UpdateCheckResult,
 } from "./types.js";
@@ -594,6 +595,27 @@ export class ManagedContainer {
     } catch (err) {
       this.app.debug(`getState failed: ${errMsg(err)}`);
       return "no-runtime";
+    }
+  }
+
+  /**
+   * State plus exit status, OOM flag, restart count and healthcheck
+   * verdict. Falls back to the coarse state alone when the manager
+   * predates `getStateDetail` (signalk-container < 1.31.0), so a caller
+   * always gets a usable `state` and simply sees the extra fields
+   * undefined. Never throws.
+   */
+  async getStateDetail(): Promise<ContainerStateDetail> {
+    const manager = this.manager ?? getContainerManager();
+    if (!manager) return { state: "no-runtime" };
+    try {
+      if (manager.getStateDetail) {
+        return await manager.getStateDetail(this.options.name);
+      }
+      return { state: await manager.getState(this.options.name) };
+    } catch (err) {
+      this.app.debug(`getStateDetail failed: ${errMsg(err)}`);
+      return { state: "no-runtime" };
     }
   }
 

@@ -51,6 +51,8 @@ export interface FakeManagerSetup {
   containers?: ContainerInfo[];
   /** Include the optional recreate method (1.12.0+). Default true. */
   withRecreate?: boolean;
+  /** Include the optional getStateDetail method (1.31.0+). Default true. */
+  withStateDetail?: boolean;
   resolveAddress?: string | null;
   /** Include the optional resolveHostPath method (1.7.0+). Default true. */
   withResolveHostPath?: boolean;
@@ -64,6 +66,7 @@ export function makeManager(setup: FakeManagerSetup = {}) {
     runtime = RUNTIME,
     containers = [],
     withRecreate = true,
+    withStateDetail = true,
     resolveAddress = "127.0.0.1:9000",
     withResolveHostPath = true,
     hostPath = {
@@ -80,6 +83,16 @@ export function makeManager(setup: FakeManagerSetup = {}) {
     getImageDigest: vi.fn(async () => null),
     ensureRunning: vi.fn<ContainerManagerApi["ensureRunning"]>(async () => {}),
     ...(withRecreate ? { recreate: vi.fn(async () => {}) } : {}),
+    ...(withStateDetail
+      ? {
+          getStateDetail: vi.fn(async () => ({
+            state: "running" as const,
+            exitCode: 0,
+            oomKilled: false,
+            restartCount: 2,
+          })),
+        }
+      : {}),
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),

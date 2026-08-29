@@ -950,3 +950,46 @@ describe("ManagedContainer readinessRetry", () => {
     expect(manager.ensureRunning).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ManagedContainer.getStateDetail", () => {
+  it("passes the manager's detail through", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+
+    expect(await container.getStateDetail()).toEqual({
+      state: "running",
+      exitCode: 0,
+      oomKilled: false,
+      restartCount: 2,
+    });
+  });
+
+  it("falls back to the coarse state on a manager without the method", async () => {
+    // signalk-container < 1.31.0 has getState but not getStateDetail. The
+    // caller still gets a usable `state`, with the extra fields undefined.
+    const manager = makeManager({ withStateDetail: false });
+    installManager(manager);
+    const { container } = makeContainer();
+
+    expect(await container.getStateDetail()).toEqual({ state: "running" });
+  });
+
+  it("reports no-runtime when the manager is absent", async () => {
+    clearManager();
+    const { container } = makeContainer();
+
+    expect(await container.getStateDetail()).toEqual({ state: "no-runtime" });
+  });
+
+  it("never throws when the manager rejects", async () => {
+    const manager = makeManager();
+    manager.getStateDetail = vi.fn(async () => {
+      throw new Error("daemon gone");
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+
+    expect(await container.getStateDetail()).toEqual({ state: "no-runtime" });
+  });
+});
