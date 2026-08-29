@@ -16,6 +16,7 @@ import type {
   ContainerConfig as CanonicalContainerConfig,
   ContainerInfo as CanonicalContainerInfo,
   ContainerState as CanonicalContainerState,
+  ContainerStateDetail as CanonicalContainerStateDetail,
   VolumeIssue as CanonicalVolumeIssue,
   ResourceClamp as CanonicalResourceClamp,
   ContainerWedged as CanonicalContainerWedged,
@@ -38,6 +39,7 @@ import type {
   ContainerConfig,
   ContainerInfo,
   ContainerState,
+  ContainerStateDetail,
   VolumeIssue,
   ResourceClamp,
   ContainerWedged,
@@ -74,6 +76,9 @@ export type _Manifest = Expect<
 >;
 export type _History = Expect<Equals<HistoryEntry, CanonicalHistoryEntry>>;
 export type _State = Expect<Equals<ContainerState, CanonicalContainerState>>;
+export type _StateDetail = Expect<
+  Equals<ContainerStateDetail, CanonicalContainerStateDetail>
+>;
 
 // --- The helper's ConsumerManifest inlines the per-container entry;   ---
 // --- assert that inlined shape equals the canonical named entry.      ---

@@ -39,6 +39,35 @@ export interface ContainerRuntimeInfo {
 export type ContainerState = "running" | "stopped" | "missing" | "no-runtime";
 
 /**
+ * Coarse state plus why: exit status, OOM kill, restart count and the
+ * container's own healthcheck verdict.
+ *
+ * Mirrors `ContainerStateDetail` in signalk-container. Every field beyond
+ * `state` is optional — a runtime that does not report one leaves it
+ * undefined rather than defaulting to a zero that would read as real data.
+ */
+export interface ContainerStateDetail {
+  /** Coarse state, identical to what `getState` returns. */
+  state: ContainerState;
+  /**
+   * Exit status the runtime last recorded. Runtimes may still carry the
+   * previous run's code while a container is running, so read it against
+   * `state` rather than on its own.
+   */
+  exitCode?: number;
+  /** True when the kernel OOM killer ended the last run. */
+  oomKilled?: boolean;
+  /**
+   * Cumulative restarts over the container's life. Legitimately non-zero
+   * on a healthy long-lived container under `--restart=unless-stopped`
+   * after a host reboot — a historical count, not a fault count.
+   */
+  restartCount?: number;
+  /** The container's own HEALTHCHECK verdict, when one is configured. */
+  health?: "starting" | "healthy" | "unhealthy" | "none";
+}
+
+/**
  * Per-volume policy when the host source path is missing at create time.
  * Named volumes (no leading `/` or `.`) always pass through.
  */
@@ -678,6 +707,11 @@ export interface ContainerManagerApi {
     options?: { ownerPluginId?: string },
   ): Promise<void>;
   getState(name: string): Promise<ContainerState>;
+  /**
+   * Coarse state plus the detail explaining it. Optional: added in
+   * signalk-container 1.31.0, so an older manager will not provide it.
+   */
+  getStateDetail?(name: string): Promise<ContainerStateDetail>;
   /** Lists managed (namespace-prefixed) containers. */
   listContainers(): Promise<ContainerInfo[]>;
   /** Live-update resource limits, falling back to recreate. */

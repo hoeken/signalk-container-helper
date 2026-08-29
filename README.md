@@ -757,7 +757,7 @@ Adopt these even where you don't use the components:
 
 | Export                                                  | Purpose                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ManagedContainer`                                      | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes`                                                                                                                                             |
+| `ManagedContainer`                                      | Full lifecycle: `start`, `stop`, `applyUpdate`, `checkForUpdate`, `getState`, `getStateDetail`, `getInfo`, `resolveAddress`, `getLogs`, `registerUpdateRoutes`                                                                                                                           |
 | `AdoptedContainer`                                      | Update registration + checks for externally-managed containers                                                                                                                                                                                                                           |
 | `getContainerManager()`                                 | Read the `globalThis.__signalk_containerManager` global                                                                                                                                                                                                                                  |
 | `waitForContainerManager(opts)`                         | Two-phase wait (manager present → runtime settled); returns `{ manager, runtime }` so the two failure modes get distinct messages                                                                                                                                                        |
@@ -906,6 +906,7 @@ The helpers feature-detect newer signalk-container capabilities:
 | `ContainerConfig.healthcheck`                          | 1.14.0 | ignored by older versions                                    |
 | `ContainerConfig.ulimits`                              | 1.17.0 | ignored by older versions                                    |
 | `ContainerConfig.devices` / `ContainerConfig.groupAdd` | 1.24.0 | ignored by older versions                                    |
+| `getStateDetail()`                                     | 1.31.0 | falls back to `getState()`; extra fields undefined           |
 
 ## Design rules inherited from the reference plugins
 
