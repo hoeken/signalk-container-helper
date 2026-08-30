@@ -220,9 +220,12 @@ export interface ContainerConfig {
    *
    * The host-side source is resolved automatically for bare-metal and
    * containerized Signal K deployments. A bind mount is narrowed to the
-   * exact host path. A **named volume** cannot be subpath-mounted, so
-   * recent signalk-container accepts one only when it is attached to that
-   * directory itself: a volume covering a parent would hand the container
+   * exact host path. A **named volume** cannot be subpath-mounted over the
+   * Docker-compat API signalk-container speaks — podman's CLI honours
+   * `--mount subpath=`, but the compat `/containers/create` endpoint
+   * silently ignores `VolumeOptions.Subpath` (verified on 5.4.2), so the
+   * whole volume is what a container would get. It therefore accepts one
+   * only when it is attached to that directory itself: a volume covering a parent would hand the container
    * the volume's entire contents, and `ensureRunning` throws instead,
    * naming the volume and the remedy. Use `resolveMount()` if you
    * deliberately want a parent-backed volume — it reports `subPath`, so the

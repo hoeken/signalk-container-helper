@@ -160,8 +160,11 @@ field from _its own_ app object — so you get
 | **Is there a GPU / device on the host?**    | **`probeHostDevice()`**                          |
 
 Either mount field resolves to a host path or a named volume, depending on the
-deployment. Volumes cannot be subpath-mounted, so signalk-container accepts one
-only when it is attached to the directory being requested — a volume covering a
+deployment. Volumes cannot be subpath-mounted over the Docker-compat API
+signalk-container speaks — podman's CLI honours `--mount subpath=`, but the
+compat endpoint silently ignores it (verified on 5.4.2), so the whole volume is
+what a container would get. signalk-container therefore accepts one only when it
+is attached to the directory being requested — a volume covering a
 parent would hand your container the volume's entire contents, and
 `ensureRunning` throws instead. `resolveMount()` is the way in if you want that
 wider scope deliberately: it reports `subPath`, so the choice is yours.
