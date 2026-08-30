@@ -70,6 +70,11 @@ describe("types.ts doc anchors", () => {
       const doc = docFor(member);
       expect(doc).toMatch(/named volume|named-volume/);
       expect(doc).toMatch(/refused|throws/);
+      // The refusal only exists in signalk-container 1.32.0+, and nothing
+      // pins which version a consumer runs — it is reached through
+      // `globalThis` at runtime. An unqualified "throws" tells someone on
+      // an older version they are protected when they are not.
+      expect(doc).toMatch(/1\.32\.0\+/);
     },
   );
 
