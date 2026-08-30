@@ -70,6 +70,10 @@ describe("types.ts doc anchors", () => {
       const doc = docFor(member);
       expect(doc).toMatch(/named volume|named-volume/);
       expect(doc).toMatch(/refused|throws/);
+      // The peer range is ^1.29.0 and the refusal only exists in 1.32.0+.
+      // An unqualified "throws" tells a consumer on 1.31 that they are
+      // protected when they are not.
+      expect(doc).toMatch(/1\.32\.0\+/);
     },
   );
 

@@ -223,10 +223,12 @@ export interface ContainerConfig {
    * exact host path. A **named volume** always arrives whole:
    * signalk-container sends no subpath, and podman's Docker-compat
    * endpoint ignores one anyway (Docker Engine honours it, so narrowing
-   * cannot be made to work uniformly). It therefore accepts a volume only
-   * when it is attached to that directory itself; one covering
-   * a parent would hand the container the volume's entire contents, so
-   * `ensureRunning` throws instead, naming the volume and the remedy. Use
+   * cannot be made to work uniformly). signalk-container 1.32.0+ therefore
+   * accepts a volume only when it is attached to that directory itself: one
+   * covering a parent would hand the container the volume's entire
+   * contents, so `ensureRunning` throws instead, naming the volume and the
+   * remedy. **Below 1.32.0 that case is mounted rather than refused**, so a
+   * plugin asking for scratch space can receive the whole tree. Use
    * `resolveMount()` if you deliberately want a parent-backed volume — it
    * reports `subPath`, so the wider scope is your explicit choice.
    */
@@ -239,8 +241,9 @@ export interface ContainerConfig {
    * rewrite `configPath`, so every caller gets the same tree. Prefer
    * `resolveMount()` when you only need your own plugin's directory.
    *
-   * The named-volume rule applies here too: a volume attached above the
-   * config root is refused rather than mounted wholesale.
+   * The named-volume rule applies here too: on signalk-container 1.32.0+ a
+   * volume attached above the config root is refused rather than mounted
+   * wholesale.
    *
    * Throws if the caller's `app` lacks `config.configPath`. 1.5.0+.
    */
@@ -747,10 +750,10 @@ export interface ContainerManagerApi {
    * calling plugin's data dir. Takes no plugin id and cannot be scoped to
    * one; use `resolveMount()` for your own directory.
    *
-   * Returns a host path or a named volume name. On recent
-   * signalk-container a named volume here is always attached to that
-   * directory itself — a broader one is refused at `ensureRunning` rather
-   * than silently over-shared.
+   * Returns a host path or a named volume name. On signalk-container
+   * 1.32.0+ a named volume here is always attached to that directory
+   * itself — a broader one is refused at `ensureRunning` rather than
+   * silently over-shared. Below that, it may be a volume covering a parent.
    */
   resolveSignalkDataMount?(): Promise<string | null>;
   /**
