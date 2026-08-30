@@ -70,9 +70,10 @@ describe("types.ts doc anchors", () => {
       const doc = docFor(member);
       expect(doc).toMatch(/named volume|named-volume/);
       expect(doc).toMatch(/refused|throws/);
-      // The peer range is ^1.29.0 and the refusal only exists in 1.32.0+.
-      // An unqualified "throws" tells a consumer on 1.31 that they are
-      // protected when they are not.
+      // The refusal only exists in signalk-container 1.32.0+, and nothing
+      // pins which version a consumer runs — it is reached through
+      // `globalThis` at runtime. An unqualified "throws" tells someone on
+      // an older version they are protected when they are not.
       expect(doc).toMatch(/1\.32\.0\+/);
     },
   );
