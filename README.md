@@ -159,6 +159,16 @@ field from _its own_ app object — so you get
 | **Your own plugin's data dir**              | **`resolveMount()`** + a `volumes` entry         |
 | **Is there a GPU / device on the host?**    | **`probeHostDevice()`**                          |
 
+Either mount field resolves to a host path or a named volume, depending on the
+deployment. A named volume always arrives whole: signalk-container sends no
+subpath, and podman's Docker-compat endpoint ignores one anyway (Docker Engine
+honours it, so narrowing cannot be made to work uniformly). signalk-container
+therefore accepts a volume only when it is attached to the directory being
+requested — a volume covering a
+parent would hand your container the volume's entire contents, and
+`ensureRunning` throws instead. `resolveMount()` is the way in if you want that
+wider scope deliberately: it reports `subPath`, so the choice is yours.
+
 `probeHostDevice(manager, path)` answers whether the **host** has a device,
 which a plugin cannot determine itself — `stat("/dev/dri")` describes the
 plugin's own filesystem, and that is the Signal K container whenever Signal K

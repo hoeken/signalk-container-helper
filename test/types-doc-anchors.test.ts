@@ -60,6 +60,19 @@ describe("types.ts doc anchors", () => {
     expect(doc).toMatch(/[Tt]hrows/);
   });
 
+  // A named volume cannot be subpath-mounted, so signalk-container refuses
+  // one attached above the requested directory rather than handing over its
+  // whole contents. A mirror that omits this reads as "you get that
+  // directory", and a consumer plans for an exposure that instead throws.
+  it.each(["signalkDataMount", "signalkConfigRootMount"])(
+    "%s states that an over-broad named volume is refused",
+    (member) => {
+      const doc = docFor(member);
+      expect(doc).toMatch(/named volume|named-volume/);
+      expect(doc).toMatch(/refused|throws/);
+    },
+  );
+
   it("removeManagedData keeps its path-safety contract", () => {
     // A destructive operation: assert BOTH halves of the guard rail, so a
     // trim that drops either one fails rather than passing on the survivor.
