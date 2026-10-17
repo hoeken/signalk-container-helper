@@ -11,6 +11,7 @@ export type {
   ResponseLike,
   UpdateRoutesOptions,
   OperationOptions,
+  StopOptions,
 } from "./managed-container.js";
 export { AdoptedContainer } from "./adopted-container.js";
 export type { AdoptedContainerOptions } from "./adopted-container.js";
