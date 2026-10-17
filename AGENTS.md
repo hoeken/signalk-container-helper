@@ -133,38 +133,31 @@ type error in a test does not fail `npm run build`.
 
 ### Release notes are generated from merged PR titles
 
-There is no CHANGELOG.md. `publish.yml` sets `generate_release_notes: true`, so
-the notes for a tag are GitHub's own list of the PRs merged since the previous
-tag, grouped into sections by `.github/release.yml` (which maps labels →
-headings, with `"*"` catching the unlabelled).
+There is no CHANGELOG.md. release-please creates each GitHub Release with
+`changelog-type: github`, so the notes for a tag are GitHub's own list of the
+PRs merged since the previous tag, grouped into sections by `.github/release.yml`
+(which maps labels → headings, with `"*"` catching the unlabelled).
 
 Two consequences worth internalising:
 
 - **A PR title is user-facing copy.** It is what appears in the release notes,
   so it has to read as a change description on its own — see
   [Commit and PR titles](#commit-and-pr-titles).
-- **Labels choose the section.** An unlabelled PR lands under "Other" rather
-  than "🚀 Features" or "🐛 Fixes". Label the PR when you open it.
-
-The release job checks out with `fetch-depth: 0`; note generation diffs against
-the previous tag and a shallow clone does not have it.
-
-### `npm run release` tags whatever is checked out
-
-The script is `git tag v$npm_package_version && git push && git push origin <tag>`.
-Run from a branch, it tags the branch head and pushes the branch. Tags must be
-created on `main` after merge. Prefer tagging explicitly (see below) over running
-this script.
+- **Labels choose the section, and the title chooses the label.**
+  `label-by-title.yml` labels every PR from its title's type when it is opened
+  or retitled: `feat`/`perf` → `enhancement`, `fix` → `bug`, `docs` →
+  `documentation`, and `ci`/`test`/`chore`/`refactor`/`style` and
+  `build(deps-dev)` → `skip-changelog`, which leaves the PR out of the notes. A
+  type it does not map lands under "Other". After relabelling a merged PR by
+  hand, run release-please from the Actions tab to regroup the open release PR.
 
 ## Release process
 
-**Version bumps and tags are separate steps. Never mix a version bump into a
-feature or fix PR.**
-
-This matters because the bump commit is what the tag points at, and mixing makes
-the release history unreadable — v0.3.0 in this repo is a cautionary example: its
-bump rode inside a `feat:` PR and the tag landed on an unrelated `fix:` merge, so
-nothing at the tag says "release". v0.2.2 shows the intended shape.
+Releases are made by [release-please](https://github.com/googleapis/release-please).
+**Never bump the version, push a release tag, or run `npm publish` by hand**, and
+never mix a version bump into a feature or fix PR. v0.3.0 in this repo shows why
+the bump must stand alone: its bump rode inside a `feat:` PR and the tag landed
+on an unrelated `fix:` merge, so nothing at the tag says "release".
 
 Publishing is **OIDC trusted publishing**. `publish.yml` grants `id-token: write`
 and there is no `NPM_TOKEN` or `NODE_AUTH_TOKEN` anywhere in the workflows. Any
@@ -174,34 +167,65 @@ presence is how you confirm the OIDC path was used.
 
 ### Steps
 
-1. **Land the work.** Feature and fix PRs carry no version bump.
-2. **Open a release PR, on its own.** Branch `chore-release-<x>-<y>-<z>`:
-   - `npm version <x.y.z> --no-git-tag-version` (bumps `package.json`; there is
-     no committed lockfile to keep in step)
-   - commit as `chore(release): <x.y.z>` — nothing else in the commit
-3. **Verify before tagging**, on merged `main`:
-   ```bash
-   rm -rf node_modules package-lock.json && npm install
-   npm run build && npm test && npm run ci-lint
-   ```
-4. **Tag the merge commit on `main`** and push:
-   ```bash
-   git checkout main && git pull --ff-only
-   git tag v<x.y.z> <merge-sha> && git push origin v<x.y.z>
-   ```
-5. The tag push triggers `publish.yml`: a GitHub Release whose notes are
-   generated from the PRs merged since the previous tag, then
-   `npm publish --provenance`.
+1. **Land the work** through PRs with conventional titles. A merge that carries
+   a releasable change (below) makes `release-please.yml` open or refresh the
+   release PR: `chore(release): <x.y.z>`, bumping `package.json` and
+   `.release-please-manifest.json` and nothing else.
+2. **Merge the release PR when you want to release.** It shows no CI checks: a
+   PR opened with `GITHUB_TOKEN` starts no workflow. It changes only the
+   version, and every change in it already passed CI on `main`.
+3. The merge makes release-please tag the merge commit `v<x.y.z>` and create the
+   GitHub Release, then dispatch `publish.yml` on the tag, which runs
+   `npm publish --provenance` (`prepublishOnly` builds and tests first).
+
+The dispatch is needed because a tag pushed with `GITHUB_TOKEN` starts no
+workflow, silently. `publish.yml` must stay the file that publishes: npm's
+trusted publishing is bound to its file name. If a publish fails after the tag
+exists, re-run `publish.yml` from the Actions tab with the tag as the ref.
+
+release-please needs the repository setting **Settings → Actions → General →
+"Allow GitHub Actions to create and approve pull requests"**; without it, it
+cannot open the release PR.
+
+### What counts as releasable
+
+GitHub's generated notes are never empty, so release-please on its own would
+open a release PR after every merge. The `gate` job in `release-please.yml` lets
+a push through only when one of its commits is `feat`, `fix`, `perf` or
+`revert`, is marked `!` or carries a `BREAKING CHANGE:` footer, is a runtime
+dependency bump (`build(deps):`), carries a `Release-As:` footer, or is the
+release PR's own merge. A `docs`, `ci`, `test`, `chore`, `refactor` or
+`build(deps-dev)` merge waits for the next release. The gate's last alternative
+is `pull-request-title-pattern` in `release-please-config.json`; change the two
+together, or the release PR's merge is judged non-releasable and no tag is ever
+created.
 
 ### Choosing the number
 
-Semver against **consumers**, not against the size of the diff:
+release-please derives the number from the commit types since the last tag:
+`fix` → patch, `feat` → minor, and a breaking change → minor while the version
+is `0.x` (`bump-minor-pre-major`; a `^0.y` range already treats a minor as
+breaking). So the number is chosen by typing each change correctly, semver
+against **consumers**, not against the size of the diff:
 
-- **patch** — dependency maintenance, docs, internal fixes with no API change
-- **minor** — new API, or _widening_ a constraint. Lowering the Node floor is a
-  minor: it takes nothing away but changes who can install.
-- **major** — removing or narrowing anything a consumer depends on, including
-  raising the Node floor or tightening a peer range
+- **`fix`** — internal fixes with no API change (a runtime `build(deps)` bump
+  is a patch too)
+- **`feat`** — new API, or _widening_ a constraint. Lowering the Node floor is a
+  `feat`: it takes nothing away but changes who can install.
+- **`!` / `BREAKING CHANGE:`** — removing or narrowing anything a consumer
+  depends on, including raising the Node floor or tightening a peer range
+
+To set the number explicitly (1.0.0 is one), merge a commit with a
+`Release-As: <x.y.z>` footer.
+
+### Pre-releases
+
+A pre-release is the one tag still pushed by hand: tag `v<x.y.z>-beta.<n>` (or
+`-alpha.<n>`, `-rc.<n>`) on `main` and push it. `publish.yml` creates its GitHub
+Release, sets the tag's version in `package.json` for that publish only (nothing
+is committed, so `main` keeps the last release's version), and publishes under
+the matching npm dist-tag. release-please does not track pre-release tags; the
+next release PR still proposes `<x.y.z>`.
 
 ## Commit and PR titles
 
@@ -212,8 +236,11 @@ consistent across this repo's history:
 <type>(<optional scope>): <subject>
 ```
 
-Types in use: `feat`, `fix`, `chore`, `docs`, `test`, `ci`, `refactor`. Scopes are
-used sparingly — `chore(release):`, `chore(deps):`, `fix(util):`, `feat(retry):`.
+Types in use: `feat`, `fix`, `chore`, `docs`, `test`, `ci`, `refactor`, `build`.
+Scopes are used sparingly — `chore(release):`, `build(deps):`, `fix(util):`,
+`feat(retry):`. Dependabot titles its bumps `build(deps)` (runtime),
+`build(deps-dev)` (development) and `ci(deps)` (GitHub Actions); the release
+gate and the labels read that prefix, so keep it on a bump raised by hand.
 
 **A PR title is published copy.** Release notes are generated from the titles of
 the PRs merged since the previous tag, so the title is what a consumer reads when
@@ -230,8 +257,8 @@ not `fix stuff`, `address review`, or `WIP`.
 - Subject in imperative mood, lowercase, no trailing period.
 - Body explains **why**, not what the diff already shows. The interesting content
   is the reasoning and the evidence.
-- **Label the PR when you open it** — `.github/release.yml` groups the notes by
-  label, and an unlabelled PR falls through to "Other".
+- The type picks the PR's label, and the label its section in the notes (see
+  [Release notes](#release-notes-are-generated-from-merged-pr-titles)).
 - Branches use **hyphens, not slashes**: `chore-release-0-2-2`,
   `fix-lockfile-types-node-drift`. (Dependabot's slashed branches are the one
   exception and are not a precedent.)
@@ -249,9 +276,9 @@ cr review --agent --base main
 
 Two things follow. First, run that yourself before pushing — nothing on GitHub
 will do it for you. Second, if the app is ever installed, note that CodeRabbit
-skips `chore(release):` and `chore(deps):` titles entirely; that is harmless for a
-pure version bump, but it is another reason to keep release PRs mechanical (the
-version bump and nothing else) and put anything reviewable in its own PR.
+skips `chore(release):` titles entirely; that is harmless for release-please's
+version-only release PR, but it is another reason never to add anything to that
+PR: put anything reviewable in its own PR.
 
 ## Claims and evidence
 

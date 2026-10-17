@@ -1,16 +1,25 @@
 name: Publish to npm
 
 on:
+  # release-please-action dispatches this on the tag it creates (a tag pushed
+  # with GITHUB_TOKEN starts no workflow). A pre-release tag pushed by hand
+  # triggers it directly.
   push:
     tags:
       - "v*"
+  # Also re-runs a release the first attempt failed to publish: run it from the
+  # Actions tab with the tag selected as the ref.
+  workflow_dispatch:
 
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # release-please creates the GitHub Release for every version it tags, so
+  # only a hand-pushed tag needs one made here.
   release:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -37,6 +46,10 @@ jobs:
 
   publish:
     needs: release
+    # Runs after the release job, or without it when dispatched. Only ever on a
+    # v* tag, the one the push trigger takes: a dispatch can select any branch
+    # or tag, and this job publishes whatever the ref holds.
+    if: ${{ !failure() && !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       id-token: write # OIDC trusted publishing
       contents: read
@@ -49,6 +62,24 @@ jobs:
         with:
           node-version: "24.x"
           registry-url: "https://registry.npmjs.org"
+
+      # A release tag must name the version release-please put in package.json.
+      # A pre-release tag is pushed by hand on a main whose package.json still
+      # holds the last release, so its version is taken from the tag, for this
+      # publish only; nothing is committed.
+      - name: Take the version from the tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$tagged" = "$version" ]; then
+            exit 0
+          fi
+          if [[ "$tagged" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+            npm version "$tagged" --no-git-tag-version
+            exit 0
+          fi
+          echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+          exit 1
 
       # package-lock.json is not committed, so generate one before npm ci --
       # a bare npm ci here would fail with no lockfile present.

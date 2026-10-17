@@ -12,6 +12,6 @@ Two things are worth knowing before you run anything, because both do damage
 silently:
 
 - **`package-lock.json` is not committed** — install with plain `npm install`.
-- **Never mix a version bump into a feature or fix PR.**
+- **Never bump the version by hand** — release-please opens the release PR.
 
 `AGENTS.md` explains why, and covers the rest.
