@@ -24,6 +24,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # Node 22 ships npm 10, whose resolver crashes on vitest's optional peer
+      # set while generating the lockfile below ("Cannot read properties of
+      # null (reading 'edgesOut')"). npm 11 resolves the same tree and
+      # supports Node 22.
+      - name: Use npm 11
+        if: matrix.node-version == '22'
+        run: npm install -g npm@11
+
       # package-lock.json is not committed (see .gitignore). Generate one for
       # this run, then install from it: npm ci gives a clean, reproducible
       # install within the run, while resolving fresh each time avoids the
