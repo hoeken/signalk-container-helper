@@ -1,0 +1,117 @@
+name: release-please
+
+# release-please keeps a release PR open, built from the conventional commits
+# merged to main since the last tag. Merging that PR is the release: it tags
+# the merge commit, creates the GitHub Release, and the publish job below
+# starts publish.yml on the new tag. See AGENTS.md "Release process".
+
+on:
+  push:
+    branches: [main]
+  # The gate below skips a push that carries no releasable commit, so a docs:,
+  # ci: or chore: merge, a change to release-please-config.json included, does
+  # not refresh an open release PR. A manual run does: after a config change,
+  # or after a merged PR's label changed and its notes should regroup.
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time: two runs would each read the release PR and each write
+# it, and the later write could undo the earlier one. Not cancelled, so a run
+# that is creating the tag or dispatching the publish is never killed part-way.
+#
+# queue: max keeps every pending run. The default keeps one pending run and
+# drops the rest, so a docs push landing behind the release PR's merge would
+# replace that run, fail the gate, and leave the tag uncreated until the next
+# releasable push.
+#
+# The group is a constant, not keyed on github.ref: the action acts on the
+# default branch's release PR whichever ref a run was started from.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  # changelog-type: github makes release-please's own "nothing to release"
+  # check useless: GitHub's generated notes are never empty, so every merge
+  # would open a release PR. Only a push carrying a change consumers get, or
+  # the release PR's own merge (which creates the tag), goes on.
+  #
+  # Every commit in the push is checked, so a merge commit's PR commits count
+  # through their own subjects. Releasable: feat, fix, perf and revert, any
+  # type marked `!`, a BREAKING CHANGE footer, a Release-As footer (matched in
+  # any case, as release-please does), GitHub's `Revert "..."`, and build(deps),
+  # a runtime dependency bump (Dependabot scopes dev bumps deps-dev). The last
+  # alternative is pull-request-title-pattern in release-please-config.json and
+  # must change with it, or the release PR's merge is judged non-releasable and
+  # no tag is ever created.
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      releasable: ${{ steps.check.outputs.releasable }}
+    steps:
+      - id: check
+        env:
+          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+          MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
+          RELEASABLE: '^((feat|fix|perf|revert)(\([^)]*\))?!?: |[a-z]+(\([^)]*\))?!: |build\(deps\): |Revert |chore\(release\): v?[0-9])'
+        run: |
+          # A manual run carries no commits, and asking for one is the
+          # statement that it should happen.
+          if [ "$DISPATCHED" = true ]; then
+            echo "releasable=true" >> "$GITHUB_OUTPUT"
+            echo "Run requested manually; release-please not gated."
+            exit 0
+          fi
+          # Fail open at both ends: an empty payload has nothing to judge, and
+          # a full one (2048 commits) may hide a releasable commit.
+          if jq -e --arg re "$RELEASABLE" '(length == 0) or (length >= 2048) or ([.[] | (split("\n")[0] | test($re)) or test("\nBREAKING[- ]CHANGE: ") or test("\nRelease-As: *v?[0-9]"; "i")] | any)' <<< "$MESSAGES" > /dev/null; then
+            echo "releasable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "releasable=false" >> "$GITHUB_OUTPUT"
+            echo "No releasable commit in this push; release-please not run."
+          fi
+
+  release-please:
+    needs: gate
+    if: ${{ needs.gate.outputs.releasable == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      # release-please creates its `autorelease: pending` / `autorelease:
+      # tagged` labels through the issues API the first time it needs them.
+      issues: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      # Pinned to a commit: this step holds write access to the repo and its
+      # PRs. No inputs: setting release-type here would override
+      # release-please-config.json.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
+
+  # The tag release-please pushes starts no workflow: an event raised with
+  # GITHUB_TOKEN never does, and it fails silently, leaving a tag and a Release
+  # with nothing published. workflow_dispatch is the exception, so publish.yml
+  # is dispatched on the tag. publish.yml has to stay the file that publishes,
+  # since npm's trusted publishing is bound to that file name. Its own job, so
+  # the right to start workflows is held by this one command only.
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout, so gh has no git remote to infer the repo from.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh workflow run publish.yml --ref "$TAG"
