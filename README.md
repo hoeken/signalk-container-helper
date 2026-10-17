@@ -99,8 +99,10 @@ export default function plugin(app) {
       });
     },
 
-    async stop() {
-      await container?.stop(); // unregister updates + stop (not remove); never throws
+    async stop(options) {
+      // unregister updates + stop (not remove); keeps it running when the
+      // server shuts down; never throws
+      await container?.stop(options);
       app.setPluginStatus("Stopped");
     },
 

@@ -478,6 +478,35 @@ describe("ManagedContainer.stop", () => {
     const { container } = makeContainer();
     await expect(container.stop()).resolves.toBeUndefined();
   });
+
+  it("leaves the container running on a server shutdown", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({
+      updates: { versionSource: { githubReleases: "example/service" } },
+    });
+    await container.start("1.0.0");
+
+    await container.stop({ reason: "shutdown" });
+
+    expect(manager.updates.unregister).toHaveBeenCalledWith("test-plugin");
+    expect(manager.stop).not.toHaveBeenCalled();
+  });
+
+  // A restart may come back configured without a managed container, so it
+  // stops like a disable.
+  for (const reason of ["disable", "restart", "a-reason-not-known-yet"]) {
+    it(`stops the container on ${reason}`, async () => {
+      const manager = makeManager();
+      installManager(manager);
+      const { container } = makeContainer();
+      await container.start("1.0.0");
+
+      await container.stop({ reason });
+
+      expect(manager.stop).toHaveBeenCalledWith("test-service");
+    });
+  }
 });
 
 describe("ManagedContainer.applyUpdate", () => {

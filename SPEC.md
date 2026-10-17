@@ -150,7 +150,7 @@ const container = new ManagedContainer({
 })
 
 await container.start(tag?)        // full bring-up; returns { manager, tag, address }
-await container.stop()             // unregister + stop (not remove); never throws
+await container.stop(options?)     // unregister + stop (not remove), except on server shutdown; never throws
 await container.applyUpdate(tag)   // recreate, or legacy pull+remove+ensureRunning
 await container.checkForUpdate()   // updates.checkOne → UpdateCheckResult | null
 await container.getState()         // ContainerState ('unknown-manager' safe default)

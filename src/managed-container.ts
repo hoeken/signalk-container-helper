@@ -127,6 +127,24 @@ export interface OperationOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * What `plugin.stop(options)` receives from a signalk-server that says why it
+ * stops the plugin — forward that object to {@link ManagedContainer.stop}
+ * unchanged.
+ */
+export interface StopOptions {
+  /**
+   * `shutdown` (the server is stopping) leaves the container running: a
+   * shutdown is usually a server restart, the plugin's next start()
+   * reconciles the container, and stopping it would only drop the service for
+   * the length of the restart. Anything
+   * else stops it — `disable`, `restart` (the new configuration may not want
+   * a managed container at all), no reason (a server that does not pass one),
+   * or a reason this version does not know.
+   */
+  reason?: string;
+}
+
 export interface StartResult {
   manager: ContainerManagerApi;
   /** The resolved tag that was started. */
@@ -495,15 +513,17 @@ export class ManagedContainer {
   /**
    * Teardown for plugin.stop(): unregister from update detection, then stop
    * (NOT remove) the container so re-enabling the plugin restarts it
-   * instantly without a pull. Never throws.
+   * instantly without a pull. Pass the options plugin.stop() received: on a
+   * server shutdown the container keeps running (see {@link StopOptions}).
+   * Never throws.
    */
-  async stop(): Promise<void> {
+  async stop(options?: StopOptions): Promise<void> {
     // Retires any retry loop still running; see the `lifecycle` field.
     this.lifecycle++;
-    return this.serialize(() => this.stopInner());
+    return this.serialize(() => this.stopInner(options?.reason));
   }
 
-  private async stopInner(): Promise<void> {
+  private async stopInner(reason: string | undefined): Promise<void> {
     this.address = null;
     const manager = this.manager ?? getContainerManager();
     if (!manager) return;
@@ -515,6 +535,7 @@ export class ManagedContainer {
       }
       this.updatesRegistered = false;
     }
+    if (reason === "shutdown") return;
     try {
       await manager.stop(this.options.name);
     } catch (err) {
