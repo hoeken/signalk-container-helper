@@ -1,11 +1,54 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  canonicalImageRef,
   ContainerHelperError,
   errMsg,
   isValidImageTag,
   startSafely,
 } from "../src/util.js";
 import { makeApp } from "./fixtures.js";
+
+describe("canonicalImageRef", () => {
+  it("qualifies a Docker Hub user/repo the way podman reports it", () => {
+    expect(canonicalImageRef("questdb/questdb:latest")).toBe(
+      "docker.io/questdb/questdb:latest",
+    );
+  });
+
+  it("adds the implicit library/ namespace to a single-name repo", () => {
+    expect(canonicalImageRef("alpine:3.19")).toBe(
+      "docker.io/library/alpine:3.19",
+    );
+    expect(canonicalImageRef("docker.io/alpine:3.19")).toBe(
+      "docker.io/library/alpine:3.19",
+    );
+  });
+
+  it("leaves an already-canonical reference unchanged", () => {
+    for (const ref of [
+      "docker.io/questdb/questdb:latest",
+      "docker.io/library/alpine:3.19",
+      "ghcr.io/dirkwa/signalk-backup-server:1.2.0",
+      "localhost/dev/app:1",
+      "registry.local:5000/team/app:2",
+    ]) {
+      expect(canonicalImageRef(ref)).toBe(ref);
+    }
+  });
+
+  it("keeps a digest and does not mistake its colon for a registry port", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    expect(canonicalImageRef(`questdb/questdb@${digest}`)).toBe(
+      `docker.io/questdb/questdb@${digest}`,
+    );
+  });
+
+  it("passes a bare image id through", () => {
+    const id = "b".repeat(64);
+    expect(canonicalImageRef(id)).toBe(id);
+    expect(canonicalImageRef(`sha256:${id}`)).toBe(`sha256:${id}`);
+  });
+});
 
 describe("isValidImageTag", () => {
   it("accepts typical tags", () => {

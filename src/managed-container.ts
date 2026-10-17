@@ -20,6 +20,7 @@ import {
   resolveContainerEndpoint,
 } from "./resolve-address.js";
 import {
+  canonicalImageRef,
   ContainerHelperError,
   errMsg,
   isValidImageTag,
@@ -371,13 +372,18 @@ export class ManagedContainer {
 
     // Startup self-heal: when the plugin bumped its pinned tag, the live
     // container's image disagrees with the desired one. recreate (1.12.0+)
-    // applies it immediately instead of trusting drift detection.
+    // applies it immediately instead of trusting drift detection. Compare
+    // canonical spellings: podman reports a Docker Hub short name qualified,
+    // and a raw compare would recreate such a container on every start.
     let reconciled = false;
     if (typeof manager.recreate === "function") {
       try {
         const found = this.matchInfo(await manager.listContainers());
         throwIfAborted(signal);
-        if (found && found.image !== desiredImage) {
+        if (
+          found &&
+          canonicalImageRef(found.image) !== canonicalImageRef(desiredImage)
+        ) {
           this.status(`Recreating ${found.image} → ${desiredImage}...`);
           await manager.recreate(name, config, ensureOptions);
           reconciled = true;
