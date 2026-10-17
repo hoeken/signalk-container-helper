@@ -16,6 +16,40 @@ export function isValidImageTag(tag: unknown): tag is string {
 }
 
 /**
+ * Spell an image reference the way podman reports it, so two spellings of
+ * the same image compare equal.
+ *
+ * signalk-container qualifies a Docker Hub short name before creating the
+ * container on podman, and podman's listing then reports the qualified form:
+ * `questdb/questdb:latest` comes back as `docker.io/questdb/questdb:latest`,
+ * and a single-name repo like `alpine:3.19` as
+ * `docker.io/library/alpine:3.19`. Docker reports the name as written.
+ * Comparing the raw strings therefore calls every Docker Hub short name
+ * "different" on podman.
+ *
+ * The first path component is a registry only when it has a dot or a colon
+ * (port), or is `localhost` — the rule podman and signalk-container use.
+ * A bare image id is content-addressed and passes through unchanged.
+ */
+export function canonicalImageRef(ref: string): string {
+  if (/^(?:sha256:)?[a-f0-9]{64}$/.test(ref)) return ref;
+  const parts = ref.split("@", 1)[0]!.split("/");
+  const first = parts[0]!;
+  const hasRegistry =
+    parts.length > 1 &&
+    (first.includes(".") || first.includes(":") || first === "localhost");
+  if (hasRegistry) {
+    // The registry may already be docker.io with a single-name repo, as in
+    // `docker.io/alpine:3.19`; podman still adds the implicit `library/`.
+    if (first === "docker.io" && parts.length === 2) {
+      return `docker.io/library/${ref.slice("docker.io/".length)}`;
+    }
+    return ref;
+  }
+  return parts.length === 1 ? `docker.io/library/${ref}` : `docker.io/${ref}`;
+}
+
+/**
  * How far to follow `.cause` / `AggregateError.errors` before giving up.
  * Deep enough for the real chains (undici wraps twice), shallow enough that a
  * pathological or cyclic graph cannot produce an unbounded status line.

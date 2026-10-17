@@ -162,6 +162,49 @@ describe("ManagedContainer.start", () => {
     expect(manager.ensureRunning).toHaveBeenCalled();
   });
 
+  it("skips self-heal when podman reports a Docker Hub short name qualified", async () => {
+    // signalk-container qualifies `questdb/questdb` before creating it on
+    // podman, which then lists it as `docker.io/questdb/questdb`. A raw string
+    // compare recreated such a container on every start.
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: "docker.io/questdb/questdb:1.0.0",
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer({ image: "questdb/questdb" });
+
+    await container.start("1.0.0");
+
+    expect(manager.recreate).not.toHaveBeenCalled();
+    expect(manager.ensureRunning).toHaveBeenCalled();
+  });
+
+  it("still self-heals a qualified Docker Hub image whose tag differs", async () => {
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: "docker.io/questdb/questdb:0.9.0",
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer({ image: "questdb/questdb" });
+
+    await container.start("1.0.0");
+
+    expect(manager.recreate).toHaveBeenCalled();
+    expect(manager.ensureRunning).not.toHaveBeenCalled();
+  });
+
   it("matches by name suffix (any namespace) when unprefixedName is absent", async () => {
     // The drifted image (0.1.0 vs requested 1.0.0) means the self-heal only
     // fires recreate if this container was actually found by suffix match.
