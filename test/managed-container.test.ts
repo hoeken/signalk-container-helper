@@ -51,7 +51,7 @@ describe("ManagedContainer.start", () => {
     expect(manager.ensureRunning).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ image: IMAGE, tag: "latest" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
     expect(result.tag).toBe("latest");
     expect(result.address).toBeNull();
@@ -85,7 +85,7 @@ describe("ManagedContainer.start", () => {
     expect(call?.[0]).toBe("test-service");
     // Same object, not a copy: nothing rewrote or re-wrapped the config.
     expect(call?.[1]).toBe(config);
-    expect(call?.[2]).toBeUndefined();
+    expect(call?.[2]).toEqual({ pluginId: "test-plugin" });
     // And it was not mutated in place on the way through.
     expect(config).toEqual(expected);
   });
@@ -101,7 +101,39 @@ describe("ManagedContainer.start", () => {
     expect(manager.ensureRunning).toHaveBeenCalledWith(
       "test-service",
       expect.anything(),
-      { onVolumeIssue },
+      { pluginId: "test-plugin", onVolumeIssue },
+    );
+  });
+
+  it("lets an explicit ensureOptions.pluginId override the default", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({
+      ensureOptions: { pluginId: "@scope/other-owner" },
+    });
+
+    await container.start("1.0.0");
+
+    expect(manager.ensureRunning).toHaveBeenCalledWith(
+      "test-service",
+      expect.anything(),
+      { pluginId: "@scope/other-owner" },
+    );
+  });
+
+  it("leaves out a plugin id signalk-container's manifest would reject", async () => {
+    // The manifest only accepts lowercase npm-style names; passing anything
+    // else would log a manifest error on every start.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({ pluginId: "MyPlugin" });
+
+    await container.start("1.0.0");
+
+    expect(manager.ensureRunning).toHaveBeenCalledWith(
+      "test-service",
+      expect.anything(),
+      undefined,
     );
   });
 
@@ -137,7 +169,7 @@ describe("ManagedContainer.start", () => {
     expect(manager.recreate).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ tag: "1.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
     expect(manager.ensureRunning).not.toHaveBeenCalled();
   });
@@ -221,7 +253,7 @@ describe("ManagedContainer.start", () => {
     expect(manager.recreate).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ image: IMAGE, tag: "1.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
   });
 
@@ -245,7 +277,7 @@ describe("ManagedContainer.start", () => {
     expect(manager.recreate).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ tag: "1.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
   });
 
@@ -276,7 +308,7 @@ describe("ManagedContainer.start", () => {
     expect(manager.recreate).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ tag: "1.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
   });
 
@@ -564,7 +596,7 @@ describe("ManagedContainer.applyUpdate", () => {
     expect(manager.recreate).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ tag: "2.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
     expect(manager.pullImage).not.toHaveBeenCalled();
     expect(result.tag).toBe("2.0.0");
@@ -585,7 +617,7 @@ describe("ManagedContainer.applyUpdate", () => {
     expect(manager.ensureRunning).toHaveBeenCalledWith(
       "test-service",
       expect.objectContaining({ tag: "2.0.0" }),
-      undefined,
+      { pluginId: "test-plugin" },
     );
   });
 

@@ -146,7 +146,7 @@ const container = new ManagedContainer({
     versionSource: { githubReleases: 'questdb/questdb' },
     currentTag: () => currentSettings?.version ?? 'auto',
   },
-  ensureOptions: { onVolumeIssue, onContainerLog },           // passed through
+  ensureOptions: { onVolumeIssue, onContainerLog },           // passed through; pluginId defaults to the one above
 })
 
 await container.start(tag?)        // full bring-up; returns { manager, tag, address }

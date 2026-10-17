@@ -27,6 +27,13 @@ import {
   throwIfAborted,
 } from "./util.js";
 
+/**
+ * The plugin ids signalk-container's manifest accepts: an npm package name or
+ * a scoped one, lowercase (its `PLUGIN_ID_RE`, less the synthetic form).
+ */
+const MANIFEST_PLUGIN_ID =
+  /^(?:[a-z0-9][a-z0-9._-]*|@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)$/;
+
 export interface ReadinessOptions {
   /**
    * Container port to reach the app on — must also be declared in the
@@ -101,7 +108,11 @@ export interface ManagedContainerOptions {
   readinessRetry?: RetryForeverOptions;
   /** Register with signalk-container's update-detection service (optional). */
   updates?: ManagedUpdateOptions;
-  /** Passed through to ensureRunning/recreate (onVolumeIssue, logs, …). */
+  /**
+   * Passed through to ensureRunning/recreate (onVolumeIssue, logs, …).
+   * `pluginId` defaults to the `pluginId` above, so signalk-container records
+   * which plugin owns the container; set it here to override.
+   */
   ensureOptions?: EnsureRunningOptions;
   /** Suppress setPluginStatus progress lines. Default false. */
   quiet?: boolean;
@@ -234,6 +245,23 @@ export class ManagedContainer {
     return this.options.app;
   }
 
+  /**
+   * The caller's ensureOptions with `pluginId` defaulted, so signalk-container
+   * records this plugin as the container's owner in its manifest. Only an id
+   * the manifest accepts is passed: anything else would log a manifest error
+   * on every start, so it is left out and the container stays unowned there.
+   */
+  private get ensureOptions(): EnsureRunningOptions | undefined {
+    const { pluginId, ensureOptions } = this.options;
+    if (
+      ensureOptions?.pluginId !== undefined ||
+      !MANIFEST_PLUGIN_ID.test(pluginId)
+    ) {
+      return ensureOptions;
+    }
+    return { pluginId, ...ensureOptions };
+  }
+
   private status(msg: string): void {
     if (!this.options.quiet) this.app.setPluginStatus(msg);
   }
@@ -351,7 +379,6 @@ export class ManagedContainer {
       name,
       image,
       buildConfig,
-      ensureOptions,
       managerTimeoutMs = 120_000,
       managerPollIntervalMs = 500,
     } = this.options;
@@ -387,6 +414,7 @@ export class ManagedContainer {
     );
     const desiredImage = `${image}:${resolved}`;
     const config = buildConfig(resolved);
+    const { ensureOptions } = this;
 
     // Startup self-heal: when the plugin bumped its pinned tag, the live
     // container's image disagrees with the desired one. recreate (1.12.0+)
@@ -578,7 +606,8 @@ export class ManagedContainer {
     throwIfAborted(signal);
     const manager = this.requireManager();
     const resolved = this.resolveTag(tag);
-    const { name, image, buildConfig, ensureOptions } = this.options;
+    const { name, image, buildConfig } = this.options;
+    const { ensureOptions } = this;
     const config = buildConfig(resolved);
 
     this.status(`Recreating ${name} with ${image}:${resolved}...`);
