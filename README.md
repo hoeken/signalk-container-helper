@@ -154,12 +154,14 @@ rewrites `app.getDataDirPath()` per plugin, and signalk-container resolves that
 field from _its own_ app object — so you get
 `<configRoot>/plugin-config-data/signalk-container/`, not yours.
 
-| You want                                    | Use                                              |
-| ------------------------------------------- | ------------------------------------------------ |
-| A private writable area in the SK data tree | `signalkDataMount` (signalk-container's)         |
-| The whole SK config root                    | `signalkConfigRootMount` (incl. `security.json`) |
-| **Your own plugin's data dir**              | **`resolveMount()`** + a `volumes` entry         |
-| **Is there a GPU / device on the host?**    | **`probeHostDevice()`**                          |
+| You want                                      | Use                                              |
+| --------------------------------------------- | ------------------------------------------------ |
+| A private writable area in the SK data tree   | `signalkDataMount` (signalk-container's)         |
+| The whole SK config root                      | `signalkConfigRootMount` (incl. `security.json`) |
+| **Your own plugin's data dir**                | **`resolveMount()`** + a `volumes` entry         |
+| **Is there a GPU / device on the host?**      | **`probeHostDevice()`**                          |
+| **Which USB serial devices are plugged in?**  | **`listHostSerialDevices()`**                    |
+| **Act when a USB device is pulled/replugged** | **`watchHostDevice()`**                          |
 
 Either mount field resolves to a host path or a named volume, depending on the
 deployment. A named volume always arrives whole: signalk-container sends no
@@ -191,6 +193,58 @@ deliberately distinct from `{ exists: false }` — assume no device, but do not
 report it as absent. Throws `ContainerHelperError('unsupported-manager')` on
 signalk-container older than 1.30.0, so catch it if you would rather degrade
 than fail. Works on both Docker and rootless podman.
+
+### USB devices that come and go
+
+A container gets its device nodes when it is created. Pull a USB stick while
+it runs and the program inside usually exits, and `unless-stopped` restarts it
+against a node that is gone; plug it back in and it may come up as another
+node (`ttyUSB1` for `ttyUSB0`) that the old container never sees.
+
+`listHostSerialDevices(manager)` lists the host's `/dev/serial/by-id` links as
+full, sorted paths. Their names carry vendor, product and serial number, so a
+plugin can recognise its hardware without asking the user for a path, and the
+link is the path to pass to the container: it survives a replug that changes
+the `ttyUSB` number. `[]` means nothing is plugged in, `null` that the host
+could not be asked. A containerized Signal K needs signalk-container 1.37.2 or
+later to list the links.
+
+`watchHostDevice(options)` follows one device and tells the plugin when to act;
+what acting means stays with the plugin:
+
+```ts
+import { watchHostDevice } from "signalk-container-helper";
+
+const watch = watchHostDevice({
+  manager,
+  path: "/dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_…",
+  isStarted: () => started,
+  isHealthy: () => bridge.online, // undefined when you cannot tell
+  onEvent: async (event) => {
+    if (event === "unplugged") await manager.stop(name);
+    else await container.applyUpdate(tag); // pluggedIn or stuck: recreate
+  },
+});
+// in plugin.stop():
+await watch.stop();
+```
+
+| Event       | When                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `unplugged` | The device went away under a started container. Once per unplug.                          |
+| `pluggedIn` | The device is back after an unplug, or appeared while nothing was started.                |
+| `stuck`     | The device is there and the workload stayed unhealthy for `stuckMs`. Repeats until fixed. |
+
+The host is probed only while the container is not started or not healthy,
+so a working setup costs nothing (a probe is a short-lived container under a
+containerized Signal K). A probe that cannot tell changes nothing, and with
+health unknown no `stuck` is raised. Ticks run every `intervalMs` (default
+30 s, the first one interval after the call), handlers never overlap, a
+throwing handler is logged through `debug`, and `stop()` waits for a tick in
+progress (from inside `onEvent` it returns at once). Pass
+`initiallyAbsent: true` when the device was missing at start, so its arrival
+is reported as `pluggedIn`. `decideDeviceEvent` is the pure decision behind
+it, exported for plugins that run their own timer.
 
 `resolveMount` translates any absolute host path into a mount the container
 runtime can actually bind, on bare-metal and containerized Signal K alike:
@@ -783,6 +837,9 @@ Adopt these even where you don't use the components:
 | `managedModeSchema(opts)`                               | The two config fields as plain JSON Schema + matching defaults (`signalk-container-helper/schema`)                                                                                                                                                                                       |
 | `waitForHttpReady(url, opts)`                           | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
 | `retryForever(fn, opts)`                                | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
+| `probeHostDevice(manager, path)`                        | Whether the host has a device, with its node names and groups; `null` when unknown                                                                                                                                                                                                       |
+| `listHostSerialDevices(manager)`                        | The host's `/dev/serial/by-id` links as full paths; `[]` when none, `null` when unknown                                                                                                                                                                                                  |
+| `watchHostDevice(opts)`                                 | Poll a host device while its container is unhealthy or not started; reports `unplugged`, `pluggedIn`, `stuck` (see [USB devices that come and go](#usb-devices-that-come-and-go))                                                                                                        |
 | `anySignal(signals)`                                    | Compose several `AbortSignal`s into one that aborts when any does (`undefined` when none are given)                                                                                                                                                                                      |
 | `probeHttpHealth(url, opts)`                            | Retrying liveness probe with slow-response detection (never throws)                                                                                                                                                                                                                      |
 | `fetchWithTimeout(url, opts)`                           | `fetch` with an `AbortController` timeout                                                                                                                                                                                                                                                |
