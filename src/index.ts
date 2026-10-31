@@ -19,6 +19,21 @@ export { buildVersionSource } from "./version-source.js";
 export type { VersionSourceSpec } from "./version-source.js";
 export { resolveMount } from "./host-path.js";
 export { probeHostDevice } from "./host-device.js";
+export { listHostSerialDevices, SERIAL_BY_ID_DIR } from "./serial-devices.js";
+export {
+  watchHostDevice,
+  decideDeviceEvent,
+  deviceProbeNeeded,
+  DEVICE_WATCH_INTERVAL_MS,
+  DEVICE_STUCK_MS,
+} from "./device-watch.js";
+export type {
+  DeviceWatchEvent,
+  DeviceWatchState,
+  DeviceObservation,
+  WatchHostDeviceOptions,
+  HostDeviceWatch,
+} from "./device-watch.js";
 export type { HostMount, ResolveMountOptions } from "./host-path.js";
 export { retryForever, anySignal } from "./retry.js";
 export type { RetryForeverOptions } from "./retry.js";
