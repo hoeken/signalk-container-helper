@@ -215,6 +215,7 @@ what acting means stays with the plugin:
 ```ts
 import { watchHostDevice } from "signalk-container-helper";
 
+const abort = new AbortController();
 const watch = watchHostDevice({
   manager,
   path: "/dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_…",
@@ -222,10 +223,12 @@ const watch = watchHostDevice({
   isHealthy: () => bridge.online, // undefined when you cannot tell
   onEvent: async (event) => {
     if (event === "unplugged") await manager.stop(name);
-    else await container.applyUpdate(tag); // pluggedIn or stuck: recreate
+    // pluggedIn or stuck: recreate
+    else await container.applyUpdate(tag, { signal: abort.signal });
   },
 });
 // in plugin.stop():
+abort.abort(); // ends a recreate the handler is waiting on, if any
 await watch.stop();
 ```
 
@@ -241,7 +244,9 @@ containerized Signal K). A probe that cannot tell changes nothing, and with
 health unknown no `stuck` is raised. Ticks run every `intervalMs` (default
 30 s, the first one interval after the call), handlers never overlap, a
 throwing handler is logged through `debug`, and `stop()` waits for a tick in
-progress (from inside `onEvent` it returns at once). Pass
+progress, including a handler still running (from inside `onEvent` it returns
+at once). So abort whatever the handler may be waiting on before awaiting
+`stop()`: a recreate with `readinessRetry` ends only on its signal. Pass
 `initiallyAbsent: true` when the device was missing at start, so its arrival
 is reported as `pluggedIn`. `decideDeviceEvent` is the pure decision behind
 it, exported for plugins that run their own timer.

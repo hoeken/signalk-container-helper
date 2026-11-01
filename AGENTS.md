@@ -20,8 +20,10 @@ Two entry points, deliberately separated:
 
 The main entry imports **one Node builtin**, `node:async_hooks`, and only in
 `device-watch.ts`: `watchHostDevice`'s `stop()` needs `AsyncLocalStorage` to
-tell its own handler from any other caller, which nothing else can. It has
-been stable in every Node the `engines` floor allows. Keeping the list that
+tell its own handler from any other caller, which nothing else can.
+`AsyncLocalStorage` is stable in every Node the `engines` floor allows; its
+`disable()`, which sheds Node 22's per-promise tracking cost between events,
+is still marked experimental (it has existed since Node 13.10). Keeping the list that
 short is what keeps the supported Node range wide and the dependency surface
 empty. Check before adding another, and never import one from a module the UI
 entry also loads.

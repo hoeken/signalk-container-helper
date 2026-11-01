@@ -30,8 +30,8 @@ export const DEVICE_STUCK_MS = 180_000;
  * running (a timer, a retry loop) carries a stale mark and still waits.
  *
  * Node 22 tracks a context through every promise in the process while any
- * storage is enabled, which costs Signal K's whole event loop, so the storage
- * is disabled whenever no handler of any watch runs.
+ * storage is enabled, which costs Signal K's whole event loop, so this copy of
+ * the library disables its storage whenever none of its handlers runs.
  */
 const handlerOf = new AsyncLocalStorage<object>();
 let handlersRunning = 0;
@@ -126,10 +126,12 @@ export interface WatchHostDeviceOptions {
 
 export interface HostDeviceWatch {
   /**
-   * Stops polling and waits for a tick in progress. Called from inside
+   * Stops polling and waits for a tick in progress, including a handler still
+   * running: abort whatever the handler waits on first. Called from inside
    * `onEvent` it returns at once instead of waiting for itself; that includes
    * anything the running handler started that calls it while the handler is
-   * still running, such as a listener it triggers synchronously.
+   * still running, such as a listener it triggers synchronously. Anything else
+   * the handler waits on must not wait on `stop()`.
    */
   stop(): Promise<void>;
 }
@@ -145,10 +147,12 @@ export interface HostDeviceWatch {
  *   isHealthy: () => bridge.online,
  *   onEvent: async (event) => {
  *     if (event === "unplugged") await manager.stop(name);
- *     else await container.applyUpdate(tag); // recreate with the new node
+ *     // recreate with the new node
+ *     else await container.applyUpdate(tag, { signal: abort.signal });
  *   },
  * });
- * // plugin.stop():
+ * // plugin.stop(): end a recreate in progress, then wait for the handler
+ * abort.abort();
  * await watch.stop();
  * ```
  *
