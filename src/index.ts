@@ -16,6 +16,11 @@ export type {
 export { AdoptedContainer } from "./adopted-container.js";
 export type { AdoptedContainerOptions } from "./adopted-container.js";
 export { buildVersionSource } from "./version-source.js";
+export { updateImageAfterPluginUpdate } from "./plugin-update.js";
+export type {
+  ImageAfterPluginUpdateOptions,
+  ImageAfterPluginUpdateOutcome,
+} from "./plugin-update.js";
 export type { VersionSourceSpec } from "./version-source.js";
 export { resolveMount } from "./host-path.js";
 export { probeHostDevice } from "./host-device.js";
@@ -77,6 +82,7 @@ export {
   errMsg,
   isValidImageTag,
   IMAGE_TAG_PATTERN,
+  classifyTag,
   ContainerHelperError,
 } from "./util.js";
 export type { ContainerHelperErrorCode } from "./util.js";

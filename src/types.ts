@@ -553,6 +553,46 @@ export interface ManifestApi {
 }
 
 // ---------------------------------------------------------------------------
+// Uplink state (containers.internet) — 1.38.0+
+// ---------------------------------------------------------------------------
+
+/** Options for {@link InternetApi.isRestricted}. */
+export interface InternetCheckOptions {
+  /**
+   * How long, in ms from the call, to wait for the first state of an
+   * enabled signalk-internet that has published none yet, as right after
+   * startup or after it restarts. Default 0: such a link counts as
+   * restricted at once. A positive `waitMs` bounds reading the server's
+   * plugin list too: a list still pending when the wait runs out also
+   * counts as restricted, while one that settles at once is read even
+   * where building it took longer. Without one, the check waits for the
+   * list.
+   */
+  waitMs?: number;
+  /**
+   * Ends the wait early, as signalk-container stopping does; the link then
+   * counts as restricted. Only a positive `waitMs` waits, so without one
+   * there is nothing for it to end.
+   */
+  signal?: AbortSignal;
+}
+
+/** The uplink as signalk-internet reports it. */
+export interface InternetApi {
+  /**
+   * Whether a download nobody asked for should wait. True while
+   * signalk-internet reports `network.internet.state` as `metered`,
+   * `offline` or `captive`, and while an enabled signalk-internet has
+   * published no state (after `waitMs`). False when it reports `online`,
+   * and without signalk-internet enabled (with a positive `waitMs`, once
+   * the plugin list is read within it), except where signalk-internet
+   * 0.7.1 or older was disabled: it leaves its last state behind until the
+   * server restarts.
+   */
+  isRestricted(options?: InternetCheckOptions): Promise<boolean>;
+}
+
+// ---------------------------------------------------------------------------
 // Doctor probes (containers.doctor) — 1.8.0+
 // ---------------------------------------------------------------------------
 
@@ -816,6 +856,13 @@ export interface ContainerManagerApi {
   manifest?: ManifestApi;
   /** 1.8.0+ — feature-detect. */
   doctor?: DoctorApi;
+  /**
+   * signalk-internet's view of the uplink, for a download nobody asked for,
+   * such as a consumer's own check for a newer image. The same view holds
+   * back signalk-container's own background update checks and floating-tag
+   * probes. 1.38.0+ — feature-detect.
+   */
+  internet?: InternetApi;
 }
 
 declare global {
