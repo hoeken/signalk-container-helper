@@ -13,6 +13,7 @@
  * "recreate" mean stays with the plugin.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { probeHostDevice } from "./host-device.js";
 import { errMsg } from "./util.js";
 import type { ContainerManagerApi } from "./types.js";
@@ -21,6 +22,19 @@ import type { ContainerManagerApi } from "./types.js";
 export const DEVICE_WATCH_INTERVAL_MS = 30_000;
 /** Default time a container may stay unhealthy with its device present. */
 export const DEVICE_STUCK_MS = 180_000;
+
+/**
+ * Marks the async call chain of each `onEvent` call, so `stop()` can tell the
+ * running handler, which must not wait for itself, from any other caller that
+ * happens to run meanwhile. The mark is per call: work an earlier handler left
+ * running (a timer, a retry loop) carries a stale mark and still waits.
+ *
+ * Node 22 tracks a context through every promise in the process while any
+ * storage is enabled, which costs Signal K's whole event loop, so this copy of
+ * the library disables its storage whenever none of its handlers runs.
+ */
+const handlerOf = new AsyncLocalStorage<object>();
+let handlersRunning = 0;
 
 export interface DeviceWatchState {
   /** The device was missing on the last tick that could tell. */
@@ -112,8 +126,12 @@ export interface WatchHostDeviceOptions {
 
 export interface HostDeviceWatch {
   /**
-   * Stops polling and waits for a tick in progress. Called from inside
-   * `onEvent` it returns at once instead of waiting for itself.
+   * Stops polling and waits for a tick in progress, including a handler still
+   * running: abort whatever the handler waits on first. Called from inside
+   * `onEvent` it returns at once instead of waiting for itself; that includes
+   * anything the running handler started that calls it while the handler is
+   * still running, such as a listener it triggers synchronously. Anything else
+   * the handler waits on must not wait on `stop()`.
    */
   stop(): Promise<void>;
 }
@@ -129,10 +147,12 @@ export interface HostDeviceWatch {
  *   isHealthy: () => bridge.online,
  *   onEvent: async (event) => {
  *     if (event === "unplugged") await manager.stop(name);
- *     else await container.applyUpdate(tag); // recreate with the new node
+ *     // recreate with the new node
+ *     else await container.applyUpdate(tag, { signal: abort.signal });
  *   },
  * });
- * // plugin.stop():
+ * // plugin.stop(): end a recreate in progress, then wait for the handler
+ * abort.abort();
  * await watch.stop();
  * ```
  *
@@ -151,7 +171,7 @@ export function watchHostDevice(
   let state: DeviceWatchState = { absent: options.initiallyAbsent ?? false };
   let stopped = false;
   let tick: Promise<void> | undefined;
-  let inHandler = false;
+  let handlerCall: object | undefined;
 
   const once = async (): Promise<void> => {
     const started = options.isStarted();
@@ -176,11 +196,14 @@ export function watchHostDevice(
     state = next;
     if (event === undefined) return;
     debug(`watchHostDevice: ${options.path} ${event}`);
-    inHandler = true;
+    const call = {};
+    handlerCall = call;
+    handlersRunning++;
     try {
-      await options.onEvent(event);
+      await handlerOf.run(call, () => options.onEvent(event));
     } finally {
-      inHandler = false;
+      handlerCall = undefined;
+      if (--handlersRunning === 0) handlerOf.disable();
     }
   };
 
@@ -200,7 +223,9 @@ export function watchHostDevice(
       stopped = true;
       clearInterval(timer);
       // Awaiting the tick from inside its own handler would never resolve.
-      if (!inHandler) await tick;
+      if (handlerCall === undefined || handlerOf.getStore() !== handlerCall) {
+        await tick;
+      }
     },
   };
 }

@@ -15,12 +15,18 @@ Two entry points, deliberately separated:
 
 | Entry | Import                        | Runtime | Dependencies                                     |
 | ----- | ----------------------------- | ------- | ------------------------------------------------ |
-| main  | `signalk-container-helper`    | Node    | none — zero-dependency, imports no Node builtins |
+| main  | `signalk-container-helper`    | Node    | none — zero-dependency, one Node builtin (below) |
 | UI    | `signalk-container-helper/ui` | browser | `react` (optional peer, `>=17`)                  |
 
-The main entry importing **no Node builtins at all** is a property worth
-preserving. It is what keeps the supported Node range wide and the dependency
-surface empty. Check before adding an import.
+The main entry imports **one Node builtin**, `node:async_hooks`, and only in
+`device-watch.ts`: `watchHostDevice`'s `stop()` needs `AsyncLocalStorage` to
+tell its own handler from any other caller, which nothing else can.
+`AsyncLocalStorage` is stable in every Node the `engines` floor allows; its
+`disable()`, which sheds Node 22's per-promise tracking cost between events,
+is still marked experimental (it has existed since Node 13.10). Keeping the list that
+short is what keeps the supported Node range wide and the dependency surface
+empty. Check before adding another, and never import one from a module the UI
+entry also loads.
 
 ## Layout
 
@@ -121,8 +127,8 @@ sees; it would not be for an application.
 `normalizeExternalUrl` is imported by **both** entries — the Node side via
 `endpoint.ts` and the browser side via `ManagedModeFields`. Writing
 `import { URL } from "node:url"` compiles, passes every test, and silently
-breaks two invariants at once: the main entry's "imports no Node builtins"
-property, and the UI bundle for every consumer whose webpack config does not
+breaks two invariants at once: the main entry's short list of Node builtins,
+and the UI bundle for every consumer whose webpack config does not
 polyfill Node core. `URL` is a global in both runtimes; just use it.
 
 ### `test/` is compiled by a separate tsconfig

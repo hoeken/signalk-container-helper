@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideDeviceEvent,
@@ -230,6 +231,172 @@ describe("watchHostDevice", () => {
     await vi.advanceTimersByTimeAsync(3 * DEVICE_WATCH_INTERVAL_MS);
     expect(events).toEqual(["unplugged"]);
     expect(probe).toHaveBeenCalledTimes(1);
+    await watch.stop();
+  });
+
+  it("waits for a running handler when stopped from outside", async () => {
+    const { api } = manager([ABSENT]);
+    let finishHandler: () => void = () => undefined;
+    let handlerDone = false;
+    const watch = watchHostDevice({
+      manager: api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        await new Promise<void>((r) => {
+          finishHandler = r;
+        });
+        handlerDone = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    let stopped = false;
+    const stopping = watch.stop().then(() => {
+      stopped = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stopped).toBe(false);
+    finishHandler();
+    await stopping;
+    expect(handlerDone).toBe(true);
+  });
+
+  it("returns at once when stopped from inside its handler after an await", async () => {
+    const { api } = manager([ABSENT]);
+    let stoppedInside = false;
+    const watch = watchHostDevice({
+      manager: api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        await Promise.resolve();
+        await new Promise<void>((r) => setTimeout(r, 10));
+        await watch.stop();
+        stoppedInside = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS + 10);
+    expect(stoppedInside).toBe(true);
+    await watch.stop();
+  });
+
+  it("waits when work left by an earlier handler stops it", async () => {
+    const { api } = manager([ABSENT, PRESENT]);
+    let startLeftover: () => void = () => undefined;
+    const leftover = new Promise<void>((r) => {
+      startLeftover = r;
+    });
+    let secondDone = false;
+    let secondDoneWhenStopped: boolean | undefined;
+    const watch = watchHostDevice({
+      manager: api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async (e) => {
+        if (e === "unplugged") {
+          void leftover.then(async () => {
+            await watch.stop();
+            secondDoneWhenStopped = secondDone;
+          });
+          return;
+        }
+        startLeftover();
+        await new Promise<void>((r) => setTimeout(r, 10));
+        secondDone = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(3 * DEVICE_WATCH_INTERVAL_MS);
+    expect(secondDoneWhenStopped).toBe(true);
+  });
+
+  it("waits for its own handler when another watch's handler stops it", async () => {
+    const a = manager([ABSENT]);
+    let finishA: () => void = () => undefined;
+    let aDone = false;
+    const watchA = watchHostDevice({
+      manager: a.api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        await new Promise<void>((r) => {
+          finishA = r;
+        });
+        await new Promise<void>((r) => setTimeout(r, 10));
+        aDone = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    const b = manager([ABSENT]);
+    let aDoneWhenStopped: boolean | undefined;
+    const watchB = watchHostDevice({
+      manager: b.api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        const stopping = watchA.stop();
+        finishA();
+        await stopping;
+        aDoneWhenStopped = aDone;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS + 10);
+    expect(aDoneWhenStopped).toBe(true);
+    await watchB.stop();
+  });
+
+  it("still returns at once inside a handler after another watch's ends", async () => {
+    let finishA: () => void = () => undefined;
+    const watchA = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: () =>
+        new Promise<void>((r) => {
+          finishA = r;
+        }),
+    });
+    let finishB: () => void = () => undefined;
+    let stoppedInsideB = false;
+    const watchB = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        await new Promise<void>((r) => {
+          finishB = r;
+        });
+        await watchB.stop();
+        stoppedInsideB = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    finishA();
+    await vi.advanceTimersByTimeAsync(0);
+    finishB();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stoppedInsideB).toBe(true);
+    await watchA.stop();
+  });
+
+  it("releases the async context once no handler runs", async () => {
+    const disable = vi.spyOn(AsyncLocalStorage.prototype, "disable");
+    const watch = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: () => undefined,
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    expect(disable).toHaveBeenCalledTimes(1);
+    disable.mockRestore();
     await watch.stop();
   });
 
