@@ -13,6 +13,7 @@
  * "recreate" mean stays with the plugin.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { probeHostDevice } from "./host-device.js";
 import { errMsg } from "./util.js";
 import type { ContainerManagerApi } from "./types.js";
@@ -21,6 +22,14 @@ import type { ContainerManagerApi } from "./types.js";
 export const DEVICE_WATCH_INTERVAL_MS = 30_000;
 /** Default time a container may stay unhealthy with its device present. */
 export const DEVICE_STUCK_MS = 180_000;
+
+/**
+ * Marks the async call chain of each `onEvent` call, so `stop()` can tell the
+ * running handler, which must not wait for itself, from any other caller that
+ * happens to run meanwhile. The mark is per call: work an earlier handler left
+ * running (a timer, a retry loop) carries a stale mark and still waits.
+ */
+const handlerOf = new AsyncLocalStorage<object>();
 
 export interface DeviceWatchState {
   /** The device was missing on the last tick that could tell. */
@@ -151,7 +160,7 @@ export function watchHostDevice(
   let state: DeviceWatchState = { absent: options.initiallyAbsent ?? false };
   let stopped = false;
   let tick: Promise<void> | undefined;
-  let inHandler = false;
+  let handlerCall: object | undefined;
 
   const once = async (): Promise<void> => {
     const started = options.isStarted();
@@ -176,11 +185,12 @@ export function watchHostDevice(
     state = next;
     if (event === undefined) return;
     debug(`watchHostDevice: ${options.path} ${event}`);
-    inHandler = true;
+    const call = {};
+    handlerCall = call;
     try {
-      await options.onEvent(event);
+      await handlerOf.run(call, () => options.onEvent(event));
     } finally {
-      inHandler = false;
+      handlerCall = undefined;
     }
   };
 
@@ -200,7 +210,9 @@ export function watchHostDevice(
       stopped = true;
       clearInterval(timer);
       // Awaiting the tick from inside its own handler would never resolve.
-      if (!inHandler) await tick;
+      if (handlerCall === undefined || handlerOf.getStore() !== handlerCall) {
+        await tick;
+      }
     },
   };
 }
