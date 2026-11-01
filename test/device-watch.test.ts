@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideDeviceEvent,
@@ -346,6 +347,57 @@ describe("watchHostDevice", () => {
     await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS + 10);
     expect(aDoneWhenStopped).toBe(true);
     await watchB.stop();
+  });
+
+  it("still returns at once inside a handler after another watch's ends", async () => {
+    let finishA: () => void = () => undefined;
+    const watchA = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: () =>
+        new Promise<void>((r) => {
+          finishA = r;
+        }),
+    });
+    let finishB: () => void = () => undefined;
+    let stoppedInsideB = false;
+    const watchB = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: async () => {
+        await new Promise<void>((r) => {
+          finishB = r;
+        });
+        await watchB.stop();
+        stoppedInsideB = true;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    finishA();
+    await vi.advanceTimersByTimeAsync(0);
+    finishB();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stoppedInsideB).toBe(true);
+    await watchA.stop();
+  });
+
+  it("releases the async context once no handler runs", async () => {
+    const disable = vi.spyOn(AsyncLocalStorage.prototype, "disable");
+    const watch = watchHostDevice({
+      manager: manager([ABSENT]).api,
+      path: PATH,
+      isStarted: () => true,
+      isHealthy: () => false,
+      onEvent: () => undefined,
+    });
+    await vi.advanceTimersByTimeAsync(DEVICE_WATCH_INTERVAL_MS);
+    expect(disable).toHaveBeenCalledTimes(1);
+    disable.mockRestore();
+    await watch.stop();
   });
 
   it("delivers nothing when stopped during a probe", async () => {

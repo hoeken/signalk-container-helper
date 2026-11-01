@@ -28,8 +28,13 @@ export const DEVICE_STUCK_MS = 180_000;
  * running handler, which must not wait for itself, from any other caller that
  * happens to run meanwhile. The mark is per call: work an earlier handler left
  * running (a timer, a retry loop) carries a stale mark and still waits.
+ *
+ * Node 22 tracks a context through every promise in the process while any
+ * storage is enabled, which costs Signal K's whole event loop, so the storage
+ * is disabled whenever no handler of any watch runs.
  */
 const handlerOf = new AsyncLocalStorage<object>();
+let handlersRunning = 0;
 
 export interface DeviceWatchState {
   /** The device was missing on the last tick that could tell. */
@@ -122,7 +127,9 @@ export interface WatchHostDeviceOptions {
 export interface HostDeviceWatch {
   /**
    * Stops polling and waits for a tick in progress. Called from inside
-   * `onEvent` it returns at once instead of waiting for itself.
+   * `onEvent` it returns at once instead of waiting for itself; that includes
+   * anything the running handler started that calls it while the handler is
+   * still running, such as a listener it triggers synchronously.
    */
   stop(): Promise<void>;
 }
@@ -187,10 +194,12 @@ export function watchHostDevice(
     debug(`watchHostDevice: ${options.path} ${event}`);
     const call = {};
     handlerCall = call;
+    handlersRunning++;
     try {
       await handlerOf.run(call, () => options.onEvent(event));
     } finally {
       handlerCall = undefined;
+      if (--handlersRunning === 0) handlerOf.disable();
     }
   };
 
