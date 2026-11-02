@@ -139,6 +139,31 @@ export interface OperationOptions {
   signal?: AbortSignal;
 }
 
+/** Options for {@link ManagedContainer.applyUpdate}. */
+export interface ApplyUpdateOptions extends OperationOptions {
+  /**
+   * Pull the tag before the recreate. signalk-container's `recreate()` pulls
+   * only an image missing from the host, so moving a container to a newer
+   * image of a tag the host already has, such as `latest`, needs the pull;
+   * the update route ({@link ManagedContainer.registerUpdateRoutes}) asks
+   * for it, and a route of your own should too. Leave it off where the
+   * recreate is not an update, such as after a device was plugged in: it
+   * would download on any link and move the container to a newer image
+   * nobody asked for. A config pinned to a digest is not pulled. Before
+   * signalk-container 1.12.0 the update always pulls.
+   *
+   * Where the pull fails, the recreate goes ahead on the host's image of the
+   * tag only if that is another image than the container runs (by image id)
+   * or no container is listed: as on a rollback while offline, or where an
+   * update check already pulled the new image. Where the host has the image
+   * the container runs, or cannot tell, the update rejects and leaves the
+   * container as it was. The pull runs
+   * under the lifecycle lock, so a `stop()` meanwhile waits for the update,
+   * as it does for a recreate that pulls a missing image.
+   */
+  pull?: boolean;
+}
+
 /**
  * What `plugin.stop(options)` receives from a signalk-server that says why it
  * stops the plugin — forward that object to {@link ManagedContainer.stop}
@@ -586,22 +611,29 @@ export class ManagedContainer {
    * plugin between remove and recreate — that failure surfaces as
    * code "recreate-limbo" with a retry-able message.
    *
+   * `recreate()` pulls only an image missing from the host: to move a
+   * container to a newer image of the same tag, such as `latest`, pass
+   * `pull: true` ({@link ApplyUpdateOptions.pull}).
+   *
    * Returns the resolved tag. When readiness is configured the address is
    * re-resolved afterwards (non-fatal on failure).
    */
   async applyUpdate(
     tag: string,
-    options?: OperationOptions,
+    options?: ApplyUpdateOptions,
   ): Promise<{ tag: string }> {
     // A pending retry of the previous tag must not outlive this update and
     // restart the container on the image the operator just moved away from.
     this.lifecycle++;
-    return this.serialize(() => this.applyUpdateInner(tag, options?.signal));
+    return this.serialize(() =>
+      this.applyUpdateInner(tag, options?.signal, options?.pull === true),
+    );
   }
 
   private async applyUpdateInner(
     tag: string,
     signal: AbortSignal | undefined,
+    pull: boolean,
   ): Promise<{ tag: string }> {
     throwIfAborted(signal);
     const manager = this.requireManager();
@@ -610,6 +642,26 @@ export class ManagedContainer {
     const { ensureOptions } = this;
     const config = buildConfig(resolved);
 
+    if (pull && typeof manager.recreate === "function" && !config.digest) {
+      // The reference the recreate runs, which buildConfig may spell
+      // differently from the options.
+      const ref = `${config.image}:${config.tag}`;
+      this.status(`Pulling ${ref}...`);
+      try {
+        await manager.pullImage(ref);
+      } catch (err) {
+        throwIfAborted(signal);
+        // A recreate on the image the container runs would report an update
+        // that changed nothing.
+        const other = await this.hostHasOtherImage(manager, ref);
+        throwIfAborted(signal);
+        if (!other) throw err;
+        this.app.debug(
+          `pull of ${ref} failed, recreating on the image the host has: ${errMsg(err)}`,
+        );
+      }
+      throwIfAborted(signal);
+    }
     this.status(`Recreating ${name} with ${image}:${resolved}...`);
     if (typeof manager.recreate === "function") {
       await manager.recreate(name, config, ensureOptions);
@@ -633,6 +685,30 @@ export class ManagedContainer {
     }
     this.status(`Updated to ${image}:${resolved}`);
     return { tag: resolved };
+  }
+
+  /**
+   * Whether the host has an image for `ref` other than the one the container
+   * runs, compared by image id, or has one and no container is listed.
+   * Names do not tell: podman lists a container under the tag it was
+   * created with even after the tag moved to a newer image. False where
+   * either id cannot be read; signalk-container reports a listing it cannot
+   * read as empty, which reads as no container.
+   */
+  private async hostHasOtherImage(
+    manager: ContainerManagerApi,
+    ref: string,
+  ): Promise<boolean> {
+    try {
+      const local = await manager.getImageDigest(ref);
+      if (!local) return false;
+      const found = this.matchInfo(await manager.listContainers());
+      if (!found) return true;
+      const running = await manager.getImageDigest(found.name);
+      return running !== null && running !== local;
+    } catch {
+      return false;
+    }
   }
 
   /** updates.checkOne — null when the manager is unavailable. */
@@ -717,6 +793,9 @@ export class ManagedContainer {
    *   GET  <basePath>/check → UpdateCheckResult (503 without a manager)
    *   POST <basePath>/apply → { success: true, tag } — body { tag?: string }
    *
+   * The apply pulls the tag, then recreates the container on it
+   * (`applyUpdate()` with {@link ApplyUpdateOptions.pull}).
+   *
    * Persist the requested tag from `onApplied` (e.g. via
    * app.savePluginOptions) so the user's choice survives restarts.
    */
@@ -757,7 +836,7 @@ export class ManagedContainer {
         return;
       }
       try {
-        const { tag } = await this.applyUpdate(requested);
+        const { tag } = await this.applyUpdate(requested, { pull: true });
         await onApplied?.(requested, tag);
         res.json({ success: true, tag });
       } catch (err) {

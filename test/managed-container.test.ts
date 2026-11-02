@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { ManagedContainer } from "../src/managed-container.js";
 import { ContainerHelperError } from "../src/util.js";
 import type { ContainerConfig } from "../src/types.js";
@@ -15,6 +15,18 @@ afterEach(() => {
 });
 
 const IMAGE = "ghcr.io/example/service";
+
+/** Local image ids by image ref or container name, as getImageDigest reads them. */
+function imageIds(
+  manager: ReturnType<typeof makeManager>,
+  ids: Record<string, string>,
+): void {
+  (
+    manager.getImageDigest as unknown as Mock<
+      (ref: string) => Promise<string | null>
+    >
+  ).mockImplementation((ref) => Promise.resolve(ids[ref] ?? null));
+}
 
 function makeContainer(
   overrides: Partial<ConstructorParameters<typeof ManagedContainer>[0]> = {},
@@ -603,6 +615,315 @@ describe("ManagedContainer.applyUpdate", () => {
     expect(container.lastStartedTag).toBe("2.0.0");
   });
 
+  it("pulls the tag before the recreate when asked to", async () => {
+    // recreate() pulls only an image missing from the host, so `latest`
+    // would otherwise stay on the image it has.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const order: string[] = [];
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push("pull");
+    });
+    (manager.recreate as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push("recreate");
+    });
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(manager.pullImage).toHaveBeenCalledWith(`${IMAGE}:latest`);
+    expect(order).toEqual(["pull", "recreate"]);
+  });
+
+  it("leaves the container as it is when the pull fails", async () => {
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: `${IMAGE}:latest`,
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    // The host's `latest` is the image the container already runs.
+    imageIds(manager, {
+      [`${IMAGE}:latest`]: "sha256:aaa",
+      "sk-test-service": "sha256:aaa",
+    });
+
+    await expect(
+      container.applyUpdate("latest", { pull: true }),
+    ).rejects.toThrow("offline");
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate once the signal aborted during the pull", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const abort = new AbortController();
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      abort.abort();
+    });
+
+    const err = await container
+      .applyUpdate("latest", { pull: true, signal: abort.signal })
+      .catch((e: unknown) => e);
+
+    expect((err as ContainerHelperError).code).toBe("cancelled");
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("pulls what the config runs, not the options' spelling", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container, buildConfig } = makeContainer();
+    buildConfig.mockImplementation((tag: string) => ({
+      image: "docker.io/test/image",
+      tag,
+    }));
+    await container.start("latest");
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(manager.pullImage).toHaveBeenCalledWith(
+      "docker.io/test/image:latest",
+    );
+  });
+
+  it("does not pull a config pinned to a digest", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container, buildConfig } = makeContainer();
+    buildConfig.mockImplementation((tag: string) => ({
+      image: IMAGE,
+      tag,
+      digest: "sha256:abc",
+    }));
+    await container.start("latest");
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(manager.pullImage).not.toHaveBeenCalled();
+    expect(manager.recreate).toHaveBeenCalled();
+  });
+
+  it("recreates on the host's image of another tag when its pull fails", async () => {
+    // A rollback while offline.
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: `${IMAGE}:2.0.0`,
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("2.0.0");
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    imageIds(manager, {
+      [`${IMAGE}:1.0.0`]: "sha256:old",
+      "sk-test-service": "sha256:new",
+    });
+
+    await container.applyUpdate("1.0.0", { pull: true });
+
+    expect(manager.getImageDigest).toHaveBeenCalledWith(`${IMAGE}:1.0.0`);
+    expect(manager.recreate).toHaveBeenCalledWith(
+      "test-service",
+      expect.objectContaining({ tag: "1.0.0" }),
+      { pluginId: "test-plugin" },
+    );
+  });
+
+  it("rejects a failed pull of the image the container runs, before any start too", async () => {
+    // Started by an earlier plugin process; this one has started nothing.
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: `${IMAGE}:latest`,
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    imageIds(manager, {
+      [`${IMAGE}:latest`]: "sha256:aaa",
+      "sk-test-service": "sha256:aaa",
+    });
+
+    await expect(
+      container.applyUpdate("latest", { pull: true }),
+    ).rejects.toThrow("offline");
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("recreates where an update check already pulled the tag's new image", async () => {
+    // podman lists the container under `latest` even once `latest` moved.
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: `${IMAGE}:latest`,
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("registry error"),
+    );
+    imageIds(manager, {
+      [`${IMAGE}:latest`]: "sha256:new",
+      "sk-test-service": "sha256:old",
+    });
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(manager.recreate).toHaveBeenCalled();
+  });
+
+  it("rejects as cancelled where the signal aborts while the fallback looks", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const abort = new AbortController();
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    (manager.getImageDigest as ReturnType<typeof vi.fn>).mockImplementation(
+      () => {
+        abort.abort();
+      },
+    );
+
+    const err = await container
+      .applyUpdate("latest", { pull: true, signal: abort.signal })
+      .catch((e: unknown) => e);
+
+    expect((err as ContainerHelperError).code).toBe("cancelled");
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("recreates on the host's image where a failed update left no container", async () => {
+    // A recreate removes the container first; one that failed leaves none.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    imageIds(manager, { [`${IMAGE}:1.0.0`]: "sha256:old" });
+
+    await container.applyUpdate("1.0.0", { pull: true });
+
+    expect(manager.recreate).toHaveBeenCalled();
+  });
+
+  it("lets a recreate without a pull run alongside a pulling update", async () => {
+    // A device plugged in while an update pulls: neither cancels the other.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    let replug: Promise<unknown> | undefined;
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      replug = container.applyUpdate("latest");
+    });
+
+    await container.applyUpdate("latest", { pull: true });
+    await replug;
+
+    expect(manager.recreate).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects with the pull's error where the host lacks the tag, or cannot tell", async () => {
+    const live = [
+      {
+        name: "sk-test-service",
+        unprefixedName: "test-service",
+        image: `${IMAGE}:2.0.0`,
+        state: "running" as const,
+      },
+    ];
+    const answers: Array<(m: ReturnType<typeof makeManager>) => unknown> = [
+      // The host has no image for the tag.
+      (m) => imageIds(m, { "sk-test-service": "sha256:new" }),
+      // The container's image cannot be read.
+      (m) => imageIds(m, { [`${IMAGE}:1.0.0`]: "sha256:old" }),
+      (m) =>
+        (m.getImageDigest as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error("socket closed"),
+        ),
+    ];
+    for (const answer of answers) {
+      const manager = makeManager({ containers: live });
+      installManager(manager);
+      const { container } = makeContainer();
+      await container.start("2.0.0");
+      (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("offline"),
+      );
+      answer(manager);
+
+      await expect(
+        container.applyUpdate("1.0.0", { pull: true }),
+      ).rejects.toThrow("offline");
+      expect(manager.recreate).not.toHaveBeenCalled();
+    }
+  });
+
+  it("says it is pulling while it pulls", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("latest");
+    let statusWhilePulling: unknown;
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      statusWhilePulling = app.setPluginStatus.mock.calls.at(-1)?.[0];
+    });
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(statusWhilePulling).toBe(`Pulling ${IMAGE}:latest...`);
+  });
+
+  it("pulls once on a manager without recreate", async () => {
+    const manager = makeManager({ withRecreate: false });
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+
+    await container.applyUpdate("latest", { pull: true });
+
+    expect(manager.pullImage).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to pull + remove + ensureRunning pre-1.12.0", async () => {
     const manager = makeManager({ withRecreate: false });
     installManager(manager);
@@ -771,6 +1092,58 @@ describe("ManagedContainer.registerUpdateRoutes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ success: true, tag: "3.0.0" });
     expect(onApplied).toHaveBeenCalledWith("auto", "3.0.0");
+  });
+
+  it("apply pulls the resolved tag before the recreate", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({
+      resolveTag: (t) => (t === "auto" ? "3.0.0" : t),
+    });
+    await container.start("3.0.0");
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never);
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    const res = makeRes();
+    await handler({ body: { tag: "auto" } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(manager.pullImage).toHaveBeenCalledWith(`${IMAGE}:3.0.0`);
+    expect(manager.recreate).toHaveBeenCalledWith(
+      "test-service",
+      expect.objectContaining({ tag: "3.0.0" }),
+      { pluginId: "test-plugin" },
+    );
+  });
+
+  it("apply reports a failed pull as 500 with a plugin error", async () => {
+    const manager = makeManager({
+      containers: [
+        {
+          name: "sk-test-service",
+          unprefixedName: "test-service",
+          image: `${IMAGE}:latest`,
+          state: "running",
+        },
+      ],
+    });
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("latest");
+    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("offline"),
+    );
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never);
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    const res = makeRes();
+    await handler({ body: {} }, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(app.setPluginError).toHaveBeenCalledWith("Update failed: offline");
+    expect(manager.recreate).not.toHaveBeenCalled();
   });
 
   it("apply rejects invalid tags with 400", async () => {

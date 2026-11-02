@@ -110,6 +110,7 @@ export default function plugin(app) {
     registerWithRouter(router) {
       // GET  /plugins/signalk-myservice/api/update/check
       // POST /plugins/signalk-myservice/api/update/apply   { tag?: string }
+      //      pulls the tag, then recreates (applyUpdate with pull: true)
       container?.registerUpdateRoutes(router, {
         onApplied: (requestedTag) => {
           // persist the REQUESTED tag (e.g. "auto") so auto-tracking survives
@@ -224,7 +225,8 @@ const watch = watchHostDevice({
   isHealthy: () => bridge.online, // undefined when you cannot tell
   onEvent: async (event) => {
     if (event === "unplugged") await manager.stop(name);
-    // pluggedIn or stuck: recreate
+    // pluggedIn or stuck: recreate, without `pull: true`, so a plug event
+    // keeps the image the host has
     else await container.applyUpdate(tag, { signal: abort.signal });
   },
 });
@@ -883,7 +885,7 @@ Errors thrown by the lifecycle methods have already been surfaced through
 ### Cancelling an operation
 
 `start()` and `applyUpdate()` take an optional second argument carrying an
-`AbortSignal`:
+`AbortSignal` (for `applyUpdate()` also `pull`, below):
 
 ```ts
 const abort = new AbortController();
@@ -921,6 +923,27 @@ readiness — queue rather than interleave, so `stop` can no longer land between
 `ensureRunning` and the readiness poll and leave the plugin believing it
 started something it just removed. Callers that already hold their own
 lifecycle lock see no change.
+
+### Pulling on an update
+
+`recreate()` pulls only an image missing from the host, so `applyUpdate()`
+moves a container to a newer image of the tag it already runs, such as
+`latest`, only with `{ pull: true }`. `registerUpdateRoutes` passes it; an
+"Update now" route of your own should too. Leave it off for a recreate that is
+not an update, such as after a device was plugged in, so that one pulls only
+an image the host lacks. (Before signalk-container 1.12.0, `applyUpdate()`
+always pulls.)
+
+With `pull: true`:
+
+- a config pinned to a digest is not pulled;
+- a failed pull recreates on the host's image of the tag where that is
+  another image than the container runs (by image id) or no container is
+  listed, as on a rollback while offline or after an update check already
+  pulled the new image; otherwise it rejects and leaves the container as it
+  was;
+- the pull runs under the lifecycle lock, so a `stop()` meanwhile waits for
+  the update, as it does for a recreate that pulls a missing image.
 
 ### Retrying forever
 
@@ -1025,10 +1048,12 @@ the container at every start.
 
 `update()` is yours because the recreate has to run under your plugin's own
 lifecycle lock. Pull first, then recreate: `recreate()` alone does not pull an
-image that is already on the host. Resolve true once the container was
-recreated, and throw only before anything changed, since a throw records
-nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates under its
-own lock:
+image that is already on the host. Pull yourself rather than passing
+`pull: true` to `applyUpdate()`: there a failed pull rejects as a failed
+recreate does, which the recipe below counts as applied. Resolve true once the
+container was recreated, and throw only before anything changed, since a throw
+records nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates
+under its own lock:
 
 ```ts
 async function yourUpdate(signal: AbortSignal): Promise<boolean> {
