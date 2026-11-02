@@ -871,6 +871,9 @@ Adopt these even where you don't use the components:
 | `invalid-tag`         | Tag failed the `IMAGE_TAG_PATTERN` guard                                                                                                                                  |
 | `address-unresolved`  | No host:port could be found for the readiness port                                                                                                                        |
 | `not-ready`           | The app never answered its health URL before the deadline                                                                                                                 |
+| `ensure-failed`       | signalk-container's `ensureRunning` rejected in `start()`: it could not create or start the container                                                                     |
+| `pull-failed`         | `applyUpdate()` could not pull the tag (see [Pulling on an update](#pulling-on-an-update)); the container was left as it was                                              |
+| `recreate-failed`     | signalk-container's `recreate` (or, before 1.12.0, `remove`) rejected in `applyUpdate()`; the container may be gone — apply the update again                              |
 | `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                                                                                            |
 | `cancelled`           | The `AbortSignal` passed to the operation fired, or a newer lifecycle operation superseded a retrying `start()` (see [Cancelling an operation](#cancelling-an-operation)) |
 | `invalid-option`      | An option could not produce sane behaviour — e.g. a non-finite or negative `retryForever` delay bound                                                                     |
@@ -878,9 +881,16 @@ Adopt these even where you don't use the components:
 | `path-unreachable`    | `resolveMount` found no Signal K mount covering the requested host path, so the host runtime cannot reach it                                                              |
 
 Errors thrown by the lifecycle methods have already been surfaced through
-`app.setPluginError` (`reported: true`), so `startSafely` won't report them twice.
-`resolveMount` is the exception: it takes no `app`, so its errors carry
-`reported: false` and `startSafely` is what surfaces them.
+`app.setPluginError` (`reported: true`; a `cancelled` one is only flagged, not
+shown), so `startSafely` won't report them twice. That covers signalk-container
+rejecting a call too: its error arrives wrapped in one of the codes above, with
+its message in the text. What your own `buildConfig` or `resolveTag` throws
+passes through as it is. `resolveMount` is the exception: it takes no `app`, so
+its errors carry `reported: false` and `startSafely` is what surfaces them.
+
+An `applyUpdate()` that rejects with `recreate-failed` or `recreate-limbo` got
+as far as the recreate, so the container may have changed. Any other rejection,
+`pull-failed` and `cancelled` among them, left the container as it was.
 
 ### Cancelling an operation
 
@@ -940,8 +950,8 @@ With `pull: true`:
 - a failed pull recreates on the host's image of the tag where that is
   another image than the container runs (by image id) or no container is
   listed, as on a rollback while offline or after an update check already
-  pulled the new image; otherwise it rejects and leaves the container as it
-  was;
+  pulled the new image; otherwise it rejects with `pull-failed` and leaves the
+  container as it was;
 - the pull runs under the lifecycle lock, so a `stop()` meanwhile waits for
   the update, as it does for a recreate that pulls a missing image.
 
@@ -1047,31 +1057,27 @@ tag such as `9` while the latest is `10.1.0`: checking again would recreate
 the container at every start.
 
 `update()` is yours because the recreate has to run under your plugin's own
-lifecycle lock. Pull first, then recreate: `recreate()` alone does not pull an
-image that is already on the host. Pull yourself rather than passing
-`pull: true` to `applyUpdate()`: there a failed pull rejects as a failed
-recreate does, which the recipe below counts as applied. Resolve true once the
-container was recreated, and throw only before anything changed, since a throw
-records nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates
-under its own lock:
+lifecycle lock. It has to pull the tag before the recreate: `recreate()` alone
+does not pull an image that is already on the host. Resolve true once the
+container was recreated, even where a later step of your own failed, and false
+(or throw) where it was not; neither records anything, so the next start
+checks again. With a `ManagedContainer`, `applyUpdate()` with `pull: true`
+does both under its own lock:
 
 ```ts
 async function yourUpdate(signal: AbortSignal): Promise<boolean> {
-  if (signal.aborted) return false;
-  await manager.pullImage(`${IMAGE}:${tag}`); // a throw here changed nothing
-  if (signal.aborted) return false;
   try {
-    await container.applyUpdate(tag, { signal });
+    await container.applyUpdate(tag, { pull: true, signal });
+    return true;
   } catch (err) {
-    // Cancelled before the recreate: nothing changed.
-    if (err instanceof ContainerHelperError && err.code === "cancelled") {
-      return false;
+    if (!(err instanceof ContainerHelperError) || err.code !== "cancelled") {
+      app.error(`image update: ${errMsg(err)}`);
     }
-    // The recreate ran, or may have: it counts as applied, so it is not
-    // repeated at every start.
-    app.error(`image update: ${errMsg(err)}`);
+    // Not recorded, so the next start checks again. A recreate that failed
+    // after it removed the container needs no repeat: that start brings the
+    // container back on the tag, now pulled, and the check finds it current.
+    return false;
   }
-  return true;
 }
 ```
 

@@ -648,7 +648,7 @@ describe("ManagedContainer.applyUpdate", () => {
       ],
     });
     installManager(manager);
-    const { container } = makeContainer();
+    const { app, container } = makeContainer();
     await container.start("latest");
     (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("offline"),
@@ -659,9 +659,16 @@ describe("ManagedContainer.applyUpdate", () => {
       "sk-test-service": "sha256:aaa",
     });
 
-    await expect(
-      container.applyUpdate("latest", { pull: true }),
-    ).rejects.toThrow("offline");
+    const err = await container
+      .applyUpdate("latest", { pull: true })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ContainerHelperError);
+    expect(err).toMatchObject({ code: "pull-failed", reported: true });
+    expect((err as Error).message).toContain("offline");
+    expect(app.setPluginError).toHaveBeenCalledWith(
+      expect.stringContaining(`Could not pull ${IMAGE}:latest`),
+    );
     expect(manager.recreate).not.toHaveBeenCalled();
   });
 
@@ -971,6 +978,137 @@ describe("ManagedContainer.applyUpdate", () => {
   });
 });
 
+describe("errors from signalk-container", () => {
+  it("reports a failed ensureRunning in start() as ensure-failed", async () => {
+    const manager = makeManager();
+    manager.ensureRunning.mockRejectedValue(new Error("port in use"));
+    installManager(manager);
+    const { app, container } = makeContainer();
+
+    const err = await container.start("1.0.0").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ContainerHelperError);
+    expect(err).toMatchObject({ code: "ensure-failed", reported: true });
+    expect((err as Error).message).toBe(
+      `Could not start ${IMAGE}:1.0.0: port in use`,
+    );
+    expect(app.setPluginError).toHaveBeenCalledWith(
+      `Could not start ${IMAGE}:1.0.0: port in use`,
+    );
+  });
+
+  it("reports a start cancelled during a failing ensureRunning as cancelled", async () => {
+    const manager = makeManager();
+    const abort = new AbortController();
+    manager.ensureRunning.mockImplementation(() => {
+      abort.abort();
+      return Promise.reject(new Error("port in use"));
+    });
+    installManager(manager);
+    const { app, container } = makeContainer();
+
+    const err = await container
+      .start("1.0.0", { signal: abort.signal })
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "cancelled" });
+    expect(app.setPluginError).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed recreate in applyUpdate() as recreate-failed", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("1.0.0");
+    (manager.recreate as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("create failed"),
+    );
+
+    const err = await container.applyUpdate("2.0.0").catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "recreate-failed", reported: true });
+    expect(app.setPluginError).toHaveBeenCalledWith(
+      expect.stringContaining("create failed"),
+    );
+    expect(container.lastStartedTag).toBe("1.0.0");
+  });
+
+  it("keeps recreate-failed where the signal aborted during the recreate", async () => {
+    // "cancelled" promises the container was left as it was; this one may not
+    // have been.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    const abort = new AbortController();
+    manager.recreate = vi.fn(() => {
+      abort.abort();
+      return Promise.reject(new Error("create failed"));
+    }) as never;
+
+    const err = await container
+      .applyUpdate("2.0.0", { signal: abort.signal })
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "recreate-failed" });
+  });
+
+  it("reports the legacy path's failed pull as pull-failed, before the remove", async () => {
+    const manager = makeManager({ withRecreate: false });
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("1.0.0");
+    manager.pullImage.mockRejectedValue(new Error("offline"));
+
+    const err = await container.applyUpdate("2.0.0").catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "pull-failed", reported: true });
+    expect(app.setPluginError).toHaveBeenCalledWith(
+      expect.stringContaining("offline"),
+    );
+    expect(manager.remove).not.toHaveBeenCalled();
+  });
+
+  it("cancels the legacy path where the signal aborted during its pull", async () => {
+    for (const pullFails of [false, true]) {
+      const manager = makeManager({ withRecreate: false });
+      installManager(manager);
+      const { app, container } = makeContainer();
+      await container.start("1.0.0");
+      const abort = new AbortController();
+      manager.pullImage.mockImplementation(() => {
+        abort.abort();
+        return pullFails
+          ? Promise.reject(new Error("offline"))
+          : Promise.resolve();
+      });
+
+      const err = await container
+        .applyUpdate("2.0.0", { signal: abort.signal })
+        .catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ code: "cancelled" });
+      expect(app.setPluginError).not.toHaveBeenCalled();
+      expect(manager.remove).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reports the legacy path's failed remove as recreate-failed", async () => {
+    const manager = makeManager({ withRecreate: false });
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    (manager.ensureRunning as ReturnType<typeof vi.fn>).mockClear();
+    manager.remove.mockRejectedValue(new Error("device busy"));
+
+    const err = await container.applyUpdate("2.0.0").catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "recreate-failed", reported: true });
+    expect((err as Error).message).toContain("device busy");
+    expect(manager.ensureRunning).not.toHaveBeenCalled();
+  });
+});
+
 describe("ManagedContainer queries", () => {
   it("checkForUpdate proxies updates.checkOne and returns null without a manager", async () => {
     const { container } = makeContainer();
@@ -1142,7 +1280,9 @@ describe("ManagedContainer.registerUpdateRoutes", () => {
     await handler({ body: {} }, res);
 
     expect(res.statusCode).toBe(500);
-    expect(app.setPluginError).toHaveBeenCalledWith("Update failed: offline");
+    expect(app.setPluginError).toHaveBeenCalledWith(
+      expect.stringMatching(/^Update failed: Could not pull .*: offline$/),
+    );
     expect(manager.recreate).not.toHaveBeenCalled();
   });
 

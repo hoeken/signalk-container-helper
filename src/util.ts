@@ -122,19 +122,30 @@ function describeError(err: unknown, depth: number): string {
     // cause here would swallow exactly the detail this function exists to
     // surface, so append it rather than returning early.
     const cause = (err as { cause?: unknown }).cause;
-    if (cause !== undefined && cause !== null && depth < MAX_CAUSE_DEPTH) {
+    if (isDescribableCause(cause) && depth < MAX_CAUSE_DEPTH) {
       return `${rendered}: ${describeError(cause, depth + 1)}`;
     }
     return rendered;
   }
   if (err instanceof Error) {
     const cause = (err as { cause?: unknown }).cause;
-    if (cause !== undefined && cause !== null && depth < MAX_CAUSE_DEPTH) {
+    if (isDescribableCause(cause) && depth < MAX_CAUSE_DEPTH) {
       return `${err.message}: ${describeError(cause, depth + 1)}`;
     }
     return err.message;
   }
   return String(err);
+}
+
+/**
+ * Whether a `.cause` adds text worth printing: an error or a primitive. A
+ * plain object would print as "[object Object]". signalk-container attaches
+ * one to its runtime errors (`{ kind, userMessage, raw }`), whose text the
+ * error's own message already carries.
+ */
+function isDescribableCause(cause: unknown): boolean {
+  if (cause === undefined || cause === null) return false;
+  return cause instanceof Error || typeof cause !== "object";
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -147,6 +158,9 @@ export type ContainerHelperErrorCode =
   | "invalid-tag"
   | "address-unresolved"
   | "not-ready"
+  | "ensure-failed"
+  | "pull-failed"
+  | "recreate-failed"
   | "recreate-limbo"
   | "cancelled"
   | "invalid-option"

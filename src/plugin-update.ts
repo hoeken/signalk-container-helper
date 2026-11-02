@@ -59,12 +59,13 @@ export interface ImageAfterPluginUpdateOptions {
   currentVersion: () => Promise<string | null>;
   /**
    * Pull the tag again, then recreate the container on it, under your
-   * plugin's lifecycle lock: `manager.pullImage()` on the image and tag
-   * first, because `recreate()` alone does not pull an image already on the
-   * host. Resolve true once the container was recreated, even where a later
-   * step failed, and false when nothing was changed. Throw only before
-   * anything was changed: a throw records nothing, and a recreate that is
-   * not recorded happens again at every start. `signal` is the check's own.
+   * plugin's lifecycle lock: the pull first, because `recreate()` alone does
+   * not pull an image already on the host. `ManagedContainer.applyUpdate()`
+   * with `pull: true` does both. Resolve true once the container was
+   * recreated, even where a later step failed: a recreate that is not
+   * recorded happens again at every start. Resolve false, or throw, where it
+   * was not; neither records anything, so the next start checks again.
+   * `signal` is the check's own.
    */
   update: (signal: AbortSignal) => Promise<boolean>;
   /**

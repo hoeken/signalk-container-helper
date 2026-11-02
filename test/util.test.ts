@@ -129,6 +129,21 @@ describe("errMsg", () => {
     expect(errMsg(new Error("boom", { cause: null }))).toBe("boom");
   });
 
+  it("ignores a plain-object cause rather than printing [object Object]", () => {
+    // signalk-container's runtime errors carry one; the message has its text.
+    const cause = {
+      kind: "not-found",
+      userMessage: "Resource not found.",
+      raw: "(HTTP code 404) manifest unknown",
+    };
+    expect(
+      errMsg(new Error("Failed to pull x: Resource not found.", { cause })),
+    ).toBe("Failed to pull x: Resource not found.");
+    expect(
+      errMsg(new AggregateError([new Error("a")], "both", { cause })),
+    ).toBe("both: a");
+  });
+
   it("caps the cause chain depth", () => {
     let err = new Error("level-6");
     for (let i = 5; i >= 0; i--) {
