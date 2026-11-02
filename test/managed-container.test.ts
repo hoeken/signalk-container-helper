@@ -1528,6 +1528,47 @@ describe("ManagedContainer.registerUpdateRoutes", () => {
     expect(onApplied).toHaveBeenCalledWith("auto", "3.0.0");
   });
 
+  it("apply without a tag re-applies the started tag as requested, not as resolved", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const onApplied = vi.fn();
+    const { container } = makeContainer({
+      resolveTag: (t) => (t === "auto" ? "3.0.0" : t),
+    });
+    await container.start("auto");
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never, { onApplied });
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    const res = makeRes();
+    await handler({ body: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(manager.pullImage).toHaveBeenCalledWith(`${IMAGE}:3.0.0`);
+    // Saving "3.0.0" would pin the plugin and end its auto-tracking.
+    expect(onApplied).toHaveBeenCalledWith("auto", "3.0.0");
+  });
+
+  it("apply without a tag re-applies the tag an earlier update requested", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const onApplied = vi.fn();
+    const { container } = makeContainer({
+      resolveTag: (t) => (t === "auto" ? "3.0.0" : t),
+    });
+    await container.start("1.0.0");
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never, { onApplied });
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    await handler({ body: { tag: "auto" } }, makeRes());
+    const res = makeRes();
+    await handler({ body: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(onApplied).toHaveBeenLastCalledWith("auto", "3.0.0");
+  });
+
   it("apply pulls the resolved tag before the recreate", async () => {
     const manager = makeManager();
     installManager(manager);

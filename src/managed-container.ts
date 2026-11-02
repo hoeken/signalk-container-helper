@@ -313,6 +313,13 @@ export class ManagedContainer {
    * {@link ApplyUpdateOptions.ifTag} is compared with.
    */
   private runningAs: string | undefined;
+  /**
+   * {@link lastStartedTag} as requested, before resolveTag: what the update
+   * route re-applies when the client names no tag, so an `onApplied` that
+   * saves it keeps a tag like "auto" instead of pinning the version it
+   * resolved to.
+   */
+  private startedAs: string | undefined;
 
   constructor(options: ManagedContainerOptions) {
     this.options = options;
@@ -570,6 +577,7 @@ export class ManagedContainer {
     }
     throwIfAborted(signal);
     this.lastStartedTag = resolved;
+    this.startedAs = requested;
     this.runningAs = requested;
 
     this.registerUpdates(manager);
@@ -857,6 +865,7 @@ export class ManagedContainer {
     // on the image the operator just moved away from.
     this.lifecycle++;
     this.lastStartedTag = resolved;
+    this.startedAs = requested;
     this.runningAs = requested;
 
     if (this.options.readiness) {
@@ -973,6 +982,10 @@ export class ManagedContainer {
    *   GET  <basePath>/check → UpdateCheckResult (503 without a manager)
    *   POST <basePath>/apply → { success: true, tag } — body { tag?: string }
    *
+   * Without a `tag` in the body the apply re-applies the tag the container
+   * was last started or updated with, as requested (before `resolveTag`), so
+   * `onApplied` sees "auto" rather than the version it resolved to.
+   *
    * The apply pulls the tag, then recreates the container on it
    * (`applyUpdate()` with {@link ApplyUpdateOptions.pull}). It answers 409,
    * without calling `onApplied`, where the plugin is stopped, or stops or
@@ -1011,7 +1024,7 @@ export class ManagedContainer {
       const requested =
         typeof body?.tag === "string" && body.tag.length > 0
           ? body.tag
-          : (this.lastStartedTag ?? this.options.defaultTag ?? "latest");
+          : (this.startedAs ?? this.options.defaultTag ?? "latest");
       if (!isValidImageTag(requested)) {
         res
           .status(400)

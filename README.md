@@ -110,6 +110,7 @@ export default function plugin(app) {
     registerWithRouter(router) {
       // GET  /plugins/signalk-myservice/api/update/check
       // POST /plugins/signalk-myservice/api/update/apply   { tag?: string }
+      //      no tag: the one the container was started with, e.g. "auto";
       //      pulls the tag, then recreates (applyUpdate with pull: true);
       //      409 while the plugin is stopped (the route stays mounted)
       container?.registerUpdateRoutes(router, {
