@@ -877,6 +877,7 @@ Adopt these even where you don't use the components:
 | `recreate-failed`     | signalk-container's `recreate` (or, before 1.12.0, `remove`) rejected in `applyUpdate()`; the container may be gone — apply the update again                              |
 | `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                                                                                            |
 | `cancelled`           | The signal fired, a newer operation retired a retrying `start()`, or a `stop()` or `start()` overtook an update (see [Cancelling an operation](#cancelling-an-operation)) |
+| `tag-mismatch`        | `applyUpdate()` with `ifTag`: the container is not known to run that tag (an operator moved it, or a start or update failed to bring it up); nothing changed              |
 | `invalid-option`      | An option could not produce sane behaviour — e.g. a non-finite or negative `retryForever` delay bound                                                                     |
 | `unsupported-manager` | `resolveMount` needs `resolveHostPath` (signalk-container 1.7.0+)                                                                                                         |
 | `path-unreachable`    | `resolveMount` found no Signal K mount covering the requested host path, so the host runtime cannot reach it                                                              |
@@ -896,7 +897,8 @@ as far as the recreate, so the container may have changed. Any other rejection,
 ### Cancelling an operation
 
 `start()` and `applyUpdate()` take an optional second argument carrying an
-`AbortSignal` (for `applyUpdate()` also `pull`, below):
+`AbortSignal` (for `applyUpdate()` also `pull`, below, and `ifTag`, under
+[Updating the image after a plugin update](#updating-the-image-after-a-plugin-update)):
 
 ```ts
 const abort = new AbortController();
@@ -1085,13 +1087,14 @@ async function yourUpdate(signal: AbortSignal): Promise<boolean> {
   try {
     // ifTag: the tag was read at start, and the check may have waited days
     // for a free link. Where "Update now" moved the container meanwhile, this
-    // rejects as cancelled and leaves it where the operator put it.
+    // rejects with tag-mismatch and leaves it where the operator put it.
     await container.applyUpdate(tag, { pull: true, ifTag: tag, signal });
     return true;
   } catch (err) {
-    if (!(err instanceof ContainerHelperError) || err.code !== "cancelled") {
-      app.error(`image update: ${errMsg(err)}`);
-    }
+    const expected =
+      err instanceof ContainerHelperError &&
+      (err.code === "cancelled" || err.code === "tag-mismatch");
+    if (!expected) app.error(`image update: ${errMsg(err)}`);
     // Not recorded, so the next start checks again. A recreate that failed
     // after it removed the container needs no repeat: that start brings the
     // container back on the tag, now pulled, and the check finds it current.
@@ -1104,10 +1107,20 @@ The check reads `tag` once, and `app.savePluginOptions` does not restart the
 plugin, so an "Update now" that pins another release while the check waits
 does not end it. Without `ifTag`, the check would then pull `latest` and move
 the container back to the release the operator rolled back from. With it, the
-update rejects as `cancelled`, the check ends as `not-applied` and records
+update rejects with `tag-mismatch`, the check ends as `not-applied` and records
 nothing, and the next start reads the pinned tag and ends as
-`tag-not-floating`. `ifTag` is compared under the lifecycle lock, so it also
-holds where the operator's update was queued ahead of the check's.
+`tag-not-floating`.
+
+`ifTag` is compared with the tag as requested from `start()` or the last
+update, before `resolveTag` maps it, so a pin on the very release a floating
+alias maps to still counts as a move. Updates run one at a time in call
+order, and the comparison is made when the update's turn comes, so it also
+holds where the operator's update was queued ahead of the check's. While a
+start or update may be changing the container, and after one failed before
+the container was up on its tag, the tag is not known and matches no
+`ifTag`: an "Update now" that replaced the container and then failed is not
+undone either. A start that brought the container up but never saw the app
+ready (`not-ready`) leaves the tag known.
 
 ### Version compatibility
 

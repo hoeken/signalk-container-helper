@@ -861,7 +861,10 @@ describe("updateImageAfterPluginUpdate", () => {
           await container.applyUpdate(tag, { pull: true, ifTag: tag, signal });
           return true;
         } catch (err) {
-          if (err instanceof ContainerHelperError && err.code === "cancelled") {
+          if (
+            err instanceof ContainerHelperError &&
+            err.code === "tag-mismatch"
+          ) {
             return false;
           }
           throw err;

@@ -253,6 +253,7 @@ class ContainerHelperError extends Error {
     | "recreate-failed"
     | "recreate-limbo"
     | "cancelled"
+    | "tag-mismatch"
     | "invalid-option"
     | "unsupported-manager"
     | "path-unreachable";

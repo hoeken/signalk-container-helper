@@ -1278,7 +1278,7 @@ describe("applyUpdate ifTag", () => {
       .applyUpdate("latest", { pull: true, ifTag: "latest" })
       .catch((e: unknown) => e);
 
-    expect(err).toMatchObject({ code: "cancelled", reported: true });
+    expect(err).toMatchObject({ code: "tag-mismatch", reported: true });
     expect((err as Error).message).toContain("runs 9.4.3");
     expect(app.setPluginError).not.toHaveBeenCalled();
     expect(manager.pullImage).not.toHaveBeenCalled();
@@ -1304,24 +1304,92 @@ describe("applyUpdate ifTag", () => {
     slow.resolve();
     await pin;
 
-    expect(await check).toMatchObject({ code: "cancelled" });
+    expect(await check).toMatchObject({ code: "tag-mismatch" });
     expect(manager.recreate).toHaveBeenCalledTimes(1);
     expect(container.lastStartedTag).toBe("9.4.3");
   });
 
-  it("compares the tag as resolveTag maps it", async () => {
+  it("compares the tag as requested, before resolveTag maps it", async () => {
+    // A resolveTag whose answer moves on, as "auto" tracking a tested list.
+    let auto = "9.4.3";
     const manager = makeManager();
     installManager(manager);
     const { container } = makeContainer({
-      resolveTag: (t) => (t === "auto" ? "9.4.3" : t),
+      resolveTag: (t) => (t === "auto" ? auto : t),
     });
     await container.start("auto");
+    auto = "9.5.0";
 
     await container.applyUpdate("auto", { ifTag: "auto" });
-    expect(manager.recreate).toHaveBeenCalledTimes(1);
+    expect(container.lastStartedTag).toBe("9.5.0");
+
+    // An operator's pin on the release "auto" maps to is still a pin.
+    await container.applyUpdate("9.5.0");
     await expect(
-      container.applyUpdate("auto", { ifTag: "latest" }),
-    ).rejects.toMatchObject({ code: "cancelled" });
+      container.applyUpdate("auto", { ifTag: "auto" }),
+    ).rejects.toMatchObject({ code: "tag-mismatch" });
+    expect(manager.recreate).toHaveBeenCalledTimes(2);
+  });
+
+  it("matches no tag after an update failed in its recreate", async () => {
+    // The operator's update replaced the container and then failed: what it
+    // runs is not known, so the check must not move it.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    (manager.recreate as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("new container would not start"),
+    );
+    await expect(container.applyUpdate("9.4.3")).rejects.toMatchObject({
+      code: "recreate-failed",
+    });
+
+    const err = await container
+      .applyUpdate("latest", { pull: true, ifTag: "latest" })
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "tag-mismatch", reported: true });
+    expect((err as Error).message).toContain("not known");
+    expect(manager.pullImage).not.toHaveBeenCalled();
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches no tag after a start failed in ensureRunning", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    manager.ensureRunning.mockRejectedValueOnce(new Error("port in use"));
+    await expect(container.start("latest")).rejects.toMatchObject({
+      code: "ensure-failed",
+    });
+
+    await expect(
+      container.applyUpdate("latest", { ifTag: "latest" }),
+    ).rejects.toMatchObject({ code: "tag-mismatch" });
+    // A start that succeeds makes it known again.
+    await container.start("latest");
+    await container.applyUpdate("latest", { ifTag: "latest" });
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the tag known after a start that came up but never became ready", async () => {
+    // not-ready is about the app, not about which image the container runs.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({
+      readiness: { port: 9000, maxMs: 30, intervalMs: 5 },
+      fetchImpl: vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    });
+    await expect(container.start("latest")).rejects.toMatchObject({
+      code: "not-ready",
+    });
+
+    await container.applyUpdate("latest", { ifTag: "latest" });
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
   });
 
   it("validates the expected tag", async () => {
