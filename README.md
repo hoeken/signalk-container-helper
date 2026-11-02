@@ -1077,12 +1077,16 @@ does not pull an image that is already on the host. Resolve true once the
 container was recreated, even where a later step of your own failed, and false
 (or throw) where it was not; neither records anything, so the next start
 checks again. With a `ManagedContainer`, `applyUpdate()` with `pull: true`
-does both under its own lock:
+does both under its own lock, and `ifTag` keeps it from undoing an operator's
+choice:
 
 ```ts
 async function yourUpdate(signal: AbortSignal): Promise<boolean> {
   try {
-    await container.applyUpdate(tag, { pull: true, signal });
+    // ifTag: the tag was read at start, and the check may have waited days
+    // for a free link. Where "Update now" moved the container meanwhile, this
+    // rejects as cancelled and leaves it where the operator put it.
+    await container.applyUpdate(tag, { pull: true, ifTag: tag, signal });
     return true;
   } catch (err) {
     if (!(err instanceof ContainerHelperError) || err.code !== "cancelled") {
@@ -1095,6 +1099,15 @@ async function yourUpdate(signal: AbortSignal): Promise<boolean> {
   }
 }
 ```
+
+The check reads `tag` once, and `app.savePluginOptions` does not restart the
+plugin, so an "Update now" that pins another release while the check waits
+does not end it. Without `ifTag`, the check would then pull `latest` and move
+the container back to the release the operator rolled back from. With it, the
+update rejects as `cancelled`, the check ends as `not-applied` and records
+nothing, and the next start reads the pinned tag and ends as
+`tag-not-floating`. `ifTag` is compared under the lifecycle lock, so it also
+holds where the operator's update was queued ahead of the check's.
 
 ### Version compatibility
 

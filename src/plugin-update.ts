@@ -42,6 +42,11 @@ export interface ImageAfterPluginUpdateOptions {
    * `autoUpdateOnFloatingTag`. Its update checks may pull the tag to compare
    * digests, but the container stays on the image it runs. Any other tag
    * names what the operator chose and stays.
+   *
+   * Read once, at the call. Where an operator may move the container to
+   * another tag while the check waits, as with "Update now", have `update()`
+   * apply only while the container still runs this one:
+   * `ManagedContainer.applyUpdate()` takes it as `ifTag`.
    */
   tag: string;
   /**

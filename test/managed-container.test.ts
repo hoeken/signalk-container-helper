@@ -1251,6 +1251,92 @@ describe("updates and the plugin lifecycle", () => {
   });
 });
 
+describe("applyUpdate ifTag", () => {
+  it("applies while the container runs the expected tag", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+
+    await container.applyUpdate("latest", { pull: true, ifTag: "latest" });
+
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("changes nothing where another update moved the container", async () => {
+    // An operator pinned 9.4.3 with "Update now" while the image check after
+    // a plugin update waited for a free link.
+    const manager = makeManager();
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("latest");
+    await container.applyUpdate("9.4.3", { pull: true });
+    manager.pullImage.mockClear();
+    (manager.recreate as ReturnType<typeof vi.fn>).mockClear();
+
+    const err = await container
+      .applyUpdate("latest", { pull: true, ifTag: "latest" })
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "cancelled", reported: true });
+    expect((err as Error).message).toContain("runs 9.4.3");
+    expect(app.setPluginError).not.toHaveBeenCalled();
+    expect(manager.pullImage).not.toHaveBeenCalled();
+    expect(manager.recreate).not.toHaveBeenCalled();
+    expect(container.lastStartedTag).toBe("9.4.3");
+  });
+
+  it("changes nothing where an update queued ahead of it moves the container", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const slow = deferred();
+    pullMock(manager).mockImplementation((ref) =>
+      ref.endsWith(":9.4.3") ? slow.promise : Promise.resolve(),
+    );
+
+    const pin = container.applyUpdate("9.4.3", { pull: true });
+    const check = container
+      .applyUpdate("latest", { pull: true, ifTag: "latest" })
+      .catch((e: unknown) => e);
+    await vi.waitFor(() => expect(manager.pullImage).toHaveBeenCalled());
+    slow.resolve();
+    await pin;
+
+    expect(await check).toMatchObject({ code: "cancelled" });
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+    expect(container.lastStartedTag).toBe("9.4.3");
+  });
+
+  it("compares the tag as resolveTag maps it", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer({
+      resolveTag: (t) => (t === "auto" ? "9.4.3" : t),
+    });
+    await container.start("auto");
+
+    await container.applyUpdate("auto", { ifTag: "auto" });
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+    await expect(
+      container.applyUpdate("auto", { ifTag: "latest" }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("validates the expected tag", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+
+    await expect(
+      container.applyUpdate("latest", { ifTag: "$(evil)" }),
+    ).rejects.toMatchObject({ code: "invalid-tag" });
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+});
+
 describe("ManagedContainer queries", () => {
   it("checkForUpdate proxies updates.checkOne and returns null without a manager", async () => {
     const { container } = makeContainer();

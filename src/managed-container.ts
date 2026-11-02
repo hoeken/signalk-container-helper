@@ -166,6 +166,19 @@ export interface ApplyUpdateOptions extends OperationOptions {
    * recreate that pulls a missing image still runs under the lock.
    */
   pull?: boolean;
+  /**
+   * Apply only while the container still runs this tag, as you would pass it
+   * to `start()` (`resolveTag` maps it too); otherwise reject as `cancelled`
+   * and change nothing. It is compared with
+   * {@link ManagedContainer.lastStartedTag} before the pull and again under
+   * the lifecycle lock, so it also catches an update queued ahead of this one.
+   *
+   * Pass it where the tag was read a while ago and an operator may have moved
+   * the container since with "Update now": the image check after a plugin
+   * update (`updateImageAfterPluginUpdate`) can wait for days before its
+   * update runs.
+   */
+  ifTag?: string;
 }
 
 /**
@@ -705,18 +718,19 @@ export class ManagedContainer {
   ): Promise<{ tag: string }> {
     const call = ++this.calls;
     return this.updateQueue.run(() =>
-      this.applyUpdateInner(call, tag, options?.signal, options?.pull === true),
+      this.applyUpdateInner(call, tag, options ?? {}),
     );
   }
 
   private async applyUpdateInner(
     call: number,
     tag: string,
-    signal: AbortSignal | undefined,
-    pull: boolean,
+    { signal, pull = false, ifTag }: ApplyUpdateOptions,
   ): Promise<{ tag: string }> {
     throwIfAborted(signal);
     this.throwIfOvertaken(call);
+    const expected = ifTag === undefined ? undefined : this.resolveTag(ifTag);
+    this.throwIfMoved(expected);
     const manager = this.requireManager();
     const resolved = this.resolveTag(tag);
     const { image, buildConfig } = this.options;
@@ -742,6 +756,7 @@ export class ManagedContainer {
     return this.serialize(async () => {
       throwIfAborted(signal);
       this.throwIfOvertaken(call);
+      this.throwIfMoved(expected);
       if (pullError) {
         // A recreate on the image the container runs would report an update
         // that changed nothing. Read under the lock, so no recreate moves the
@@ -761,6 +776,19 @@ export class ManagedContainer {
       }
       return this.recreateInner(manager, config, resolved);
     });
+  }
+
+  /**
+   * Rejects an update as `cancelled` where the container no longer runs the
+   * tag its caller expected ({@link ApplyUpdateOptions.ifTag}).
+   */
+  private throwIfMoved(expected: string | undefined): void {
+    if (expected === undefined || this.lastStartedTag === expected) return;
+    throw new ContainerHelperError(
+      "cancelled",
+      `Update of ${this.options.name} cancelled: it expected ${expected}, but the container runs ${this.lastStartedTag ?? "no tag started yet"}.`,
+      true,
+    );
   }
 
   /** The recreate of an update; runs under the lifecycle lock. */
