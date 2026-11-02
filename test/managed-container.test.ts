@@ -757,31 +757,19 @@ describe("ManagedContainer.applyUpdate", () => {
     );
   });
 
-  it("rejects a failed pull of the image the container runs, before any start too", async () => {
-    // Started by an earlier plugin process; this one has started nothing.
-    const manager = makeManager({
-      containers: [
-        {
-          name: "sk-test-service",
-          unprefixedName: "test-service",
-          image: `${IMAGE}:latest`,
-          state: "running",
-        },
-      ],
-    });
+  it("refuses an update before any start(), without pulling", async () => {
+    // signalk-server mounts the routes of a disabled plugin too.
+    const manager = makeManager();
     installManager(manager);
-    const { container } = makeContainer();
-    (manager.pullImage as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("offline"),
-    );
-    imageIds(manager, {
-      [`${IMAGE}:latest`]: "sha256:aaa",
-      "sk-test-service": "sha256:aaa",
-    });
+    const { app, container } = makeContainer();
 
-    await expect(
-      container.applyUpdate("latest", { pull: true }),
-    ).rejects.toThrow("offline");
+    const err = await container
+      .applyUpdate("latest", { pull: true })
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ code: "cancelled", reported: true });
+    expect(app.setPluginError).not.toHaveBeenCalled();
+    expect(manager.pullImage).not.toHaveBeenCalled();
     expect(manager.recreate).not.toHaveBeenCalled();
   });
 
@@ -1109,6 +1097,160 @@ describe("errors from signalk-container", () => {
   });
 });
 
+/** A promise to settle by hand. */
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function pullMock(manager: ReturnType<typeof makeManager>) {
+  return manager.pullImage as unknown as Mock<(ref: string) => Promise<void>>;
+}
+
+describe("updates and the plugin lifecycle", () => {
+  it("refuses an update after stop() and takes one after the next start()", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    await container.stop();
+
+    await expect(container.applyUpdate("2.0.0")).rejects.toMatchObject({
+      code: "cancelled",
+    });
+    expect(manager.recreate).not.toHaveBeenCalled();
+
+    await container.start("1.0.0");
+    await container.applyUpdate("2.0.0");
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not make stop() wait for a pull, and then stands down", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const pull = deferred();
+    manager.pullImage.mockImplementation(() => pull.promise);
+
+    const update = container
+      .applyUpdate("latest", { pull: true })
+      .catch((e: unknown) => e);
+    await vi.waitFor(() => expect(manager.pullImage).toHaveBeenCalled());
+    // Resolves while the pull is still running.
+    await container.stop();
+    expect(manager.stop).toHaveBeenCalledWith("test-service");
+
+    pull.resolve();
+    expect(await update).toMatchObject({ code: "cancelled", reported: true });
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("cancels an update a restart overtook, though the plugin runs again", async () => {
+    // A config save restarts the plugin: the update the old run asked for
+    // must not recreate the container under the new configuration.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("latest");
+    const pull = deferred();
+    manager.pullImage.mockImplementationOnce(() => pull.promise);
+
+    const update = container
+      .applyUpdate("latest", { pull: true })
+      .catch((e: unknown) => e);
+    await vi.waitFor(() => expect(manager.pullImage).toHaveBeenCalled());
+    await container.stop();
+    await container.start("latest");
+    pull.resolve();
+
+    expect(await update).toMatchObject({ code: "cancelled" });
+    expect(manager.recreate).not.toHaveBeenCalled();
+    // One called after the restart applies.
+    await container.applyUpdate("latest", { pull: true });
+    expect(manager.recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels an update a stop overtook while it waited for the lock", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    const busy = deferred();
+    // A start that holds the lock while the update waits for it.
+    manager.ensureRunning.mockImplementationOnce(() => busy.promise);
+    const restart = container.start("1.0.0");
+
+    const update = container.applyUpdate("2.0.0").catch((e: unknown) => e);
+    const stopped = container.stop();
+    busy.resolve();
+    await restart;
+    await stopped;
+
+    expect(await update).toMatchObject({ code: "cancelled" });
+    expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("applies updates in call order, though a later pull would end first", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    const slow = deferred();
+    pullMock(manager).mockImplementation((ref) =>
+      ref.endsWith(":2.0.0") ? slow.promise : Promise.resolve(),
+    );
+
+    const first = container.applyUpdate("2.0.0", { pull: true });
+    const second = container.applyUpdate("3.0.0", { pull: true });
+    await vi.waitFor(() => expect(manager.pullImage).toHaveBeenCalled());
+    // The second update waits for the first, pull included.
+    expect(manager.pullImage).toHaveBeenCalledTimes(1);
+    slow.resolve();
+    await first;
+    await second;
+
+    expect(
+      (manager.recreate as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => (c[1] as ContainerConfig).tag,
+      ),
+    ).toEqual(["2.0.0", "3.0.0"]);
+    expect(container.lastStartedTag).toBe("3.0.0");
+  });
+
+  it("keeps a retrying start() retrying when an update fails before its recreate", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = makeManager();
+      manager.ensureRunning.mockRejectedValue(new Error("down"));
+      // The host has no other image to fall back on.
+      manager.pullImage.mockRejectedValue(new Error("offline"));
+      installManager(manager);
+      const { container } = makeContainer({
+        readinessRetry: { minDelayMs: 100, maxDelayMs: 100 },
+      });
+
+      const started = container.start("1.0.0");
+      started.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(150);
+
+      await expect(
+        container.applyUpdate("2.0.0", { pull: true }),
+      ).rejects.toMatchObject({ code: "pull-failed" });
+      manager.ensureRunning.mockResolvedValue(undefined);
+      await vi.advanceTimersByTimeAsync(500);
+
+      await expect(started).resolves.toMatchObject({ tag: "1.0.0" });
+      expect(manager.recreate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("ManagedContainer queries", () => {
   it("checkForUpdate proxies updates.checkOne and returns null without a manager", async () => {
     const { container } = makeContainer();
@@ -1284,6 +1426,51 @@ describe("ManagedContainer.registerUpdateRoutes", () => {
       expect.stringMatching(/^Update failed: Could not pull .*: offline$/),
     );
     expect(manager.recreate).not.toHaveBeenCalled();
+  });
+
+  it("apply answers 409 for a stopped plugin, without onApplied or a plugin error", async () => {
+    const manager = makeManager();
+    installManager(manager);
+    const { app, container } = makeContainer();
+    await container.start("1.0.0");
+    await container.stop();
+    const onApplied = vi.fn();
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never, { onApplied });
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    const res = makeRes();
+    await handler({ body: { tag: "2.0.0" } }, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(app.setPluginError).not.toHaveBeenCalled();
+    expect(manager.pullImage).not.toHaveBeenCalled();
+  });
+
+  it("apply answers 409 without onApplied when the plugin stops during the recreate", async () => {
+    // onApplied would save the tag over settings a config save just wrote.
+    const manager = makeManager();
+    installManager(manager);
+    const { container } = makeContainer();
+    await container.start("1.0.0");
+    let stopped: Promise<void> | undefined;
+    (manager.recreate as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      stopped = container.stop();
+    });
+    const onApplied = vi.fn();
+    const router = makeRouter();
+    container.registerUpdateRoutes(router as never, { onApplied });
+    const handler = router.routes.get("POST /api/update/apply")!;
+
+    const res = makeRes();
+    await handler({ body: { tag: "2.0.0" } }, res);
+    await stopped;
+
+    expect(manager.recreate).toHaveBeenCalled();
+    expect(res.statusCode).toBe(409);
+    expect((res.body as { error: string }).error).toContain("not saved");
+    expect(onApplied).not.toHaveBeenCalled();
   });
 
   it("apply rejects invalid tags with 400", async () => {

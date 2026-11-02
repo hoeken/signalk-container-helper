@@ -110,7 +110,8 @@ export default function plugin(app) {
     registerWithRouter(router) {
       // GET  /plugins/signalk-myservice/api/update/check
       // POST /plugins/signalk-myservice/api/update/apply   { tag?: string }
-      //      pulls the tag, then recreates (applyUpdate with pull: true)
+      //      pulls the tag, then recreates (applyUpdate with pull: true);
+      //      409 while the plugin is stopped (the route stays mounted)
       container?.registerUpdateRoutes(router, {
         onApplied: (requestedTag) => {
           // persist the REQUESTED tag (e.g. "auto") so auto-tracking survives
@@ -875,7 +876,7 @@ Adopt these even where you don't use the components:
 | `pull-failed`         | `applyUpdate()` could not pull the tag (see [Pulling on an update](#pulling-on-an-update)); the container was left as it was                                              |
 | `recreate-failed`     | signalk-container's `recreate` (or, before 1.12.0, `remove`) rejected in `applyUpdate()`; the container may be gone — apply the update again                              |
 | `recreate-limbo`      | Legacy update path removed the container but recreation failed — retry applies                                                                                            |
-| `cancelled`           | The `AbortSignal` passed to the operation fired, or a newer lifecycle operation superseded a retrying `start()` (see [Cancelling an operation](#cancelling-an-operation)) |
+| `cancelled`           | The signal fired, a newer operation retired a retrying `start()`, or a `stop()` or `start()` overtook an update (see [Cancelling an operation](#cancelling-an-operation)) |
 | `invalid-option`      | An option could not produce sane behaviour — e.g. a non-finite or negative `retryForever` delay bound                                                                     |
 | `unsupported-manager` | `resolveMount` needs `resolveHostPath` (signalk-container 1.7.0+)                                                                                                         |
 | `path-unreachable`    | `resolveMount` found no Signal K mount covering the requested host path, so the host runtime cannot reach it                                                              |
@@ -934,6 +935,16 @@ readiness — queue rather than interleave, so `stop` can no longer land between
 started something it just removed. Callers that already hold their own
 lifecycle lock see no change.
 
+Updates queue among themselves and apply in the order they were called, but
+take the lifecycle lock only for the recreate, after their pull. A `start()`
+or `stop()` cancels every update called before it: one still pulling is not
+waited for, and once its pull ends it rejects as `cancelled` without
+recreating. An update called while the instance is stopped, after `stop()` or
+before any `start()`, rejects the same way. signalk-server mounts plugin
+routes whether the plugin runs or not, and restarts a plugin on a config save
+only once its `stop()` resolved, so without this a long pull would hold up
+the restart, and then recreate the container for a run that is gone.
+
 ### Pulling on an update
 
 `recreate()` pulls only an image missing from the host, so `applyUpdate()`
@@ -952,8 +963,10 @@ With `pull: true`:
   listed, as on a rollback while offline or after an update check already
   pulled the new image; otherwise it rejects with `pull-failed` and leaves the
   container as it was;
-- the pull runs under the lifecycle lock, so a `stop()` meanwhile waits for
-  the update, as it does for a recreate that pulls a missing image.
+- the pull runs before the update takes the lifecycle lock, so a `stop()`
+  meanwhile does not wait for the download; the update then stands down
+  without recreating. A recreate that pulls a missing image still runs under
+  the lock.
 
 ### Retrying forever
 
@@ -996,8 +1009,10 @@ than waiting the delay out.
 Each attempt is serialized individually rather than the loop as a whole, so a
 retry sleeping between attempts never blocks `stop()`. A later lifecycle
 operation also retires the loop: a `start()` still retrying an old tag stands
-down when `applyUpdate()` or `stop()` runs, instead of restarting the container
-on the image the operator just moved away from.
+down when `stop()` runs, or once `applyUpdate()` has recreated the container,
+instead of restarting the container on the image the operator just moved away
+from. An update that fails before its recreate, as on a pull while offline,
+leaves the loop retrying.
 
 `retryForever` is exported on its own for the same policy applied to work this
 library does not manage — an external service a plugin points at but does not
