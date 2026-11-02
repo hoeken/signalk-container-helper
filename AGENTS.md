@@ -126,7 +126,7 @@ npm run format    # prettier --write && eslint --fix
 ```
 
 Run **all three** of build, test, and ci-lint before pushing. CI runs the same
-three on a `["22", "24"]` matrix; there is no reason to discover a failure there
+three on a `["24", "26"]` matrix; there is no reason to discover a failure there
 that a local run would have caught.
 
 ## Traps
@@ -333,5 +333,5 @@ If something was not run, say so rather than implying coverage.
 
 For version-floor and compatibility claims specifically, grepping for an API is
 weak evidence. Type-checking against the types of the _lowest_ supported version
-is strong evidence — that is why `@types/node` is pinned to the floor (`^22`) and
+is strong evidence — that is why `@types/node` is pinned to the floor (`^24`) and
 not to the latest.
