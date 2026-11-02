@@ -13,20 +13,28 @@ user-facing decision, not an implementation detail.
 
 Two entry points, deliberately separated:
 
-| Entry | Import                        | Runtime | Dependencies                                     |
-| ----- | ----------------------------- | ------- | ------------------------------------------------ |
-| main  | `signalk-container-helper`    | Node    | none — zero-dependency, one Node builtin (below) |
-| UI    | `signalk-container-helper/ui` | browser | `react` (optional peer, `>=17`)                  |
+| Entry | Import                        | Runtime | Dependencies                                      |
+| ----- | ----------------------------- | ------- | ------------------------------------------------- |
+| main  | `signalk-container-helper`    | Node    | none — zero-dependency, two Node builtins (below) |
+| UI    | `signalk-container-helper/ui` | browser | `react` (optional peer, `>=17`)                   |
 
-The main entry imports **one Node builtin**, `node:async_hooks`, and only in
-`device-watch.ts`: `watchHostDevice`'s `stop()` needs `AsyncLocalStorage` to
-tell its own handler from any other caller, which nothing else can.
-`AsyncLocalStorage` is stable in every Node the `engines` floor allows; its
-`disable()`, which sheds Node 22's per-promise tracking cost between events,
-is still marked experimental (it has existed since Node 13.10). Keeping the list that
-short is what keeps the supported Node range wide and the dependency surface
-empty. Check before adding another, and never import one from a module the UI
-entry also loads.
+The main entry imports **two Node builtins**, each in one module:
+
+- `node:async_hooks` in `device-watch.ts`: `watchHostDevice`'s `stop()` needs
+  `AsyncLocalStorage` to tell its own handler from any other caller, which
+  nothing else can. `AsyncLocalStorage` is stable in every Node the `engines`
+  floor allows; its `disable()`, which sheds Node 22's per-promise tracking
+  cost between events, is still marked experimental (it has existed since
+  Node 13.10).
+- `node:fs/promises` in `plugin-update.ts`: `updateImageAfterPluginUpdate`
+  records the plugin version it last checked under in a file, so every
+  consumer does not write the same few lines of JSON storage itself.
+  `readFile`, `writeFile`, `rename` and `unlink` are stable in every Node the
+  floor allows.
+
+Keeping the list that short is what keeps the supported Node range wide and
+the dependency surface empty. Check before adding another, and never import
+one from a module the UI entry also loads.
 
 ## Layout
 

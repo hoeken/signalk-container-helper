@@ -1,4 +1,4 @@
-import type { AppLike } from "./types.js";
+import type { AppLike, TagKind } from "./types.js";
 
 /**
  * Allowed characters for an image tag before it is passed anywhere near the
@@ -13,6 +13,35 @@ export function isValidImageTag(tag: unknown): tag is string {
     tag.length <= 128 &&
     IMAGE_TAG_PATTERN.test(tag)
   );
+}
+
+const FLOATING_TAG_NAMES: ReadonlySet<string> = new Set([
+  "latest",
+  "main",
+  "master",
+  "edge",
+  "nightly",
+  "stable",
+  "dev",
+  "rolling",
+  "head",
+  "trunk",
+]);
+
+/**
+ * Classify an image tag the way signalk-container does: `semver` names one
+ * release (`9.4.3`, `v1.5`, `2.0.0-beta1`), `floating` moves to new images
+ * (`latest`, `main`, a bare major like `3` or `v3`), and anything else is
+ * `unknown`. signalk-container recreates a container on a newer image of the
+ * same tag (`autoUpdateOnFloatingTag`) only for a `floating` one.
+ */
+export function classifyTag(tag: string): TagKind {
+  const t = tag.trim();
+  if (!t) return "unknown";
+  if (FLOATING_TAG_NAMES.has(t.toLowerCase())) return "floating";
+  if (/^v?\d+$/i.test(t)) return "floating";
+  if (/^v?\d+\.\d+(\.\d+)?(-[\w.]+)?$/i.test(t)) return "semver";
+  return "unknown";
 }
 
 /**

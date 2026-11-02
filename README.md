@@ -40,10 +40,11 @@ Requires **Node ≥ 22**. This library is published as an **ES module** (`import
 
 At **runtime** it works with signalk-container ≥ 1.6.0 — newer manager features
 (`recreate`, `getLogs`, …) are feature-detected with graceful fallbacks. Its
-**type contract** is validated against **signalk-container ≥ 1.23.2** (1.23.0
+**type contract** is validated against **signalk-container ≥ 1.38.0** (1.23.0
 first published the `signalk-container/types` entrypoint; 1.23.1 added the
-update-service types; 1.23.2 completed their option types); this is a dev-only
-check and imposes no dependency on your plugin.
+update-service types; 1.23.2 completed their option types; 1.38.0 added the
+`internet` types); this is a dev-only check and imposes no dependency on your
+plugin.
 
 ## Quick start: a managed container
 
@@ -842,6 +843,7 @@ Adopt these even where you don't use the components:
 | `managedModeSchema(opts)`                               | The two config fields as plain JSON Schema + matching defaults (`signalk-container-helper/schema`)                                                                                                                                                                                       |
 | `waitForHttpReady(url, opts)`                           | Poll until 2xx or deadline (throws)                                                                                                                                                                                                                                                      |
 | `retryForever(fn, opts)`                                | Retry until success — 15s doubling to a 120s ceiling, no attempt cap. `ManagedContainer` takes it as `readinessRetry`; exported standalone for work this library does not manage                                                                                                         |
+| `updateImageAfterPluginUpdate(opts)`                    | After your plugin was updated, bring a container on a floating tag such as `latest` to the latest release once, on a free link (see [Updating the image after a plugin update](#updating-the-image-after-a-plugin-update))                                                               |
 | `probeHostDevice(manager, path)`                        | Whether the host has a device, with its node names and groups; `null` when unknown                                                                                                                                                                                                       |
 | `listHostSerialDevices(manager)`                        | The host's `/dev/serial/by-id` links as full paths; `[]` when none, `null` when unknown                                                                                                                                                                                                  |
 | `watchHostDevice(opts)`                                 | Poll a host device while its container is unhealthy or not started; reports `unplugged`, `pluggedIn`, `stuck` (see [USB devices that come and go](#usb-devices-that-come-and-go))                                                                                                        |
@@ -851,9 +853,10 @@ Adopt these even where you don't use the components:
 | `throwIfAborted(signal)`                                | Throw `ContainerHelperError` `cancelled` if the signal has fired — the check the lifecycle methods run between steps                                                                                                                                                                     |
 | `startSafely(app, fn)`                                  | Sync wrapper for async plugin startup — Signal K does not await `start()`                                                                                                                                                                                                                |
 | `isValidImageTag(tag)`                                  | Tag guard (`IMAGE_TAG_PATTERN`)                                                                                                                                                                                                                                                          |
+| `classifyTag(tag)`                                      | `semver`, `floating` or `unknown`, as signalk-container classifies an image tag                                                                                                                                                                                                          |
 | `errMsg(err)`                                           | Normalize unknown errors to strings                                                                                                                                                                                                                                                      |
 | `ContainerHelperError`                                  | Typed error with `code` and `reported`                                                                                                                                                                                                                                                   |
-| Types                                                   | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.23.2) so it never silently drifts. Feature-detected members stay optional here. |
+| Types                                                   | Local mirror of signalk-container's public API — `ContainerManagerApi`, `ContainerConfig`, `EnsureRunningOptions`, `UpdateServiceApi`, … — verified at build time against `signalk-container/types` (≥ 1.38.0) so it never silently drifts. Feature-detected members stay optional here. |
 
 ### Error codes
 
@@ -967,20 +970,101 @@ on the image the operator just moved away from.
 library does not manage — an external service a plugin points at but does not
 own, for instance.
 
+### Updating the image after a plugin update
+
+signalk-container moves a container to a newer image of its tag only where
+the config sets `autoUpdateOnFloatingTag`. Its update checks may pull the tag
+to compare digests, but the container stays on the image it runs, so a
+container on a floating tag such as `latest` stays on whatever release the
+first install pulled. `updateImageAfterPluginUpdate` closes that gap at the
+moment an operator expects change anyway: the first start after your plugin
+itself was updated, or its first start at all.
+
+```ts
+let abort: AbortController | undefined;
+
+// in start(), once `await container.start()` resolved — not awaited:
+abort = new AbortController();
+void updateImageAfterPluginUpdate({
+  manager,
+  pluginVersion, // from your package.json
+  stateFile: path.join(app.getDataDirPath(), "image-check.json"), // one per container
+  tag: settings.imageTag,
+  versionSource: { githubReleases: "questdb/questdb" },
+  currentVersion: () => queryRunningVersion(), // "9.4.3", or null
+  update: (signal) => yourUpdate(signal), // see below
+  signal: abort.signal,
+})
+  .then((outcome) => app.debug(`image check after plugin update: ${outcome}`))
+  .catch((err) => app.error(`image check after plugin update: ${errMsg(err)}`));
+
+// in stop():
+abort?.abort();
+```
+
+It checks once per plugin version, and only a tag signalk-container
+classifies as floating; one that names a single release, such as `9.4.3`,
+stays as it is. Before it downloads anything, it asks signalk-container
+whether [signalk-internet](https://github.com/meri-imperiumi/signalk-internet)
+reports a free link, waiting up to `linkWaitMs` (default 60 s) for its first
+state after a restart; without signalk-internet enabled the link counts as
+free (signalk-container 1.38.0+; an older one cannot tell, and the check ends
+as `link-restricted`). On a metered, offline or captive link, or where the
+running or the latest version cannot be read, it asks again every
+`linkRetryMs` (default 15 min), until it can go on or the signal aborts. The
+promise can therefore stay pending for as long as the plugin runs, which is
+why `signal` is required.
+
+Where `update()` resolves false, it records nothing, so the next start checks
+again. Once `update()` has applied an update it records the version, then
+waits up to `versionWaitMs` (default 2 min) for the recreated container to
+report the latest release or a later one. A container that then still reports
+an older release, or none, ends as `behind-after-update`, as on a bare-major
+tag such as `9` while the latest is `10.1.0`: checking again would recreate
+the container at every start.
+
+`update()` is yours because the recreate has to run under your plugin's own
+lifecycle lock. Pull first, then recreate: `recreate()` alone does not pull an
+image that is already on the host. Resolve true once the container was
+recreated, and throw only before anything changed, since a throw records
+nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates under its
+own lock:
+
+```ts
+async function yourUpdate(signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false;
+  await manager.pullImage(`${IMAGE}:${tag}`); // a throw here changed nothing
+  if (signal.aborted) return false;
+  try {
+    await container.applyUpdate(tag, { signal });
+  } catch (err) {
+    // Cancelled before the recreate: nothing changed.
+    if (err instanceof ContainerHelperError && err.code === "cancelled") {
+      return false;
+    }
+    // The recreate ran, or may have: it counts as applied, so it is not
+    // repeated at every start.
+    app.error(`image update: ${errMsg(err)}`);
+  }
+  return true;
+}
+```
+
 ### Version compatibility
 
 The helpers feature-detect newer signalk-container capabilities:
 
-| Capability                                             | Floor  | Fallback behavior                                            |
-| ------------------------------------------------------ | ------ | ------------------------------------------------------------ |
-| `whenReady()`                                          | 1.6.0  | polls `getRuntime()`                                         |
-| `getLogs()`                                            | 1.7.0  | `getLogs()` returns `null`                                   |
-| `resolveHostPath()`                                    | 1.7.0  | `resolveMount()` throws `unsupported-manager`                |
-| `recreate()`                                           | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning |
-| `ContainerConfig.healthcheck`                          | 1.14.0 | ignored by older versions                                    |
-| `ContainerConfig.ulimits`                              | 1.17.0 | ignored by older versions                                    |
-| `ContainerConfig.devices` / `ContainerConfig.groupAdd` | 1.24.0 | ignored by older versions                                    |
-| `getStateDetail()`                                     | 1.31.0 | falls back to `getState()`; extra fields undefined           |
+| Capability                                             | Floor  | Fallback behavior                                                                                                                                     |
+| ------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `whenReady()`                                          | 1.6.0  | polls `getRuntime()`                                                                                                                                  |
+| `getLogs()`                                            | 1.7.0  | `getLogs()` returns `null`                                                                                                                            |
+| `resolveHostPath()`                                    | 1.7.0  | `resolveMount()` throws `unsupported-manager`                                                                                                         |
+| `recreate()`                                           | 1.12.0 | self-heal skipped; updates use pull → remove → ensureRunning                                                                                          |
+| `ContainerConfig.healthcheck`                          | 1.14.0 | ignored by older versions                                                                                                                             |
+| `ContainerConfig.ulimits`                              | 1.17.0 | ignored by older versions                                                                                                                             |
+| `ContainerConfig.devices` / `ContainerConfig.groupAdd` | 1.24.0 | ignored by older versions                                                                                                                             |
+| `getStateDetail()`                                     | 1.31.0 | falls back to `getState()`; extra fields undefined                                                                                                    |
+| `internet.isRestricted()`                              | 1.38.0 | `updateImageAfterPluginUpdate` cannot tell whether signalk-internet reports a free link, returns `link-restricted` and checks again at the next start |
 
 ## Design rules inherited from the reference plugins
 
