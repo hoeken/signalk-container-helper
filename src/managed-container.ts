@@ -166,6 +166,26 @@ export interface ApplyUpdateOptions extends OperationOptions {
    * recreate that pulls a missing image still runs under the lock.
    */
   pull?: boolean;
+  /**
+   * Apply only while the container is known to run this tag, as requested
+   * from `start()` or an earlier update (before `resolveTag` maps it);
+   * otherwise reject with `tag-mismatch` and change nothing. While a start or
+   * update may be changing the container, and after one failed before the
+   * container was up on its tag, the tag is unknown and matches no `ifTag`.
+   * A start that brought the container up but never saw the app ready
+   * (`not-ready`) leaves the tag known: the question is which tag, not
+   * whether the app answers.
+   *
+   * Updates run one at a time in call order, and this is checked when the
+   * update's turn comes, before its pull, so an update queued ahead of it
+   * counts. It is checked again right before the recreate.
+   *
+   * Pass it where the tag was read a while ago and an operator may have moved
+   * the container since with "Update now": the image check after a plugin
+   * update (`updateImageAfterPluginUpdate`) can wait for days before its
+   * update runs.
+   */
+  ifTag?: string;
 }
 
 /**
@@ -286,6 +306,13 @@ export class ManagedContainer {
   private lastStartOrStop = 0;
   /** Between a start() call and the next stop() call. */
   private started = false;
+  /**
+   * The tag, as requested before resolveTag, that the container is known to
+   * run: set once start() or an update brought it up on that tag, unset from
+   * the moment one of them may change the container until it succeeds. What
+   * {@link ApplyUpdateOptions.ifTag} is compared with.
+   */
+  private runningAs: string | undefined;
 
   constructor(options: ManagedContainerOptions) {
     this.options = options;
@@ -487,12 +514,13 @@ export class ManagedContainer {
     }
     this.manager = manager;
 
-    const resolved = this.resolveTag(
-      tag ?? this.options.defaultTag ?? "latest",
-    );
+    const requested = tag ?? this.options.defaultTag ?? "latest";
+    const resolved = this.resolveTag(requested);
     const desiredImage = `${image}:${resolved}`;
     const config = buildConfig(resolved);
     const { ensureOptions } = this;
+    // The container may change from here until ensureRunning succeeds.
+    this.runningAs = undefined;
 
     // Startup self-heal: when the plugin bumped its pinned tag, the live
     // container's image disagrees with the desired one. recreate (1.12.0+)
@@ -542,6 +570,7 @@ export class ManagedContainer {
     }
     throwIfAborted(signal);
     this.lastStartedTag = resolved;
+    this.runningAs = requested;
 
     this.registerUpdates(manager);
 
@@ -705,18 +734,21 @@ export class ManagedContainer {
   ): Promise<{ tag: string }> {
     const call = ++this.calls;
     return this.updateQueue.run(() =>
-      this.applyUpdateInner(call, tag, options?.signal, options?.pull === true),
+      this.applyUpdateInner(call, tag, options ?? {}),
     );
   }
 
   private async applyUpdateInner(
     call: number,
     tag: string,
-    signal: AbortSignal | undefined,
-    pull: boolean,
+    { signal, pull = false, ifTag }: ApplyUpdateOptions,
   ): Promise<{ tag: string }> {
     throwIfAborted(signal);
     this.throwIfOvertaken(call);
+    if (ifTag !== undefined && !isValidImageTag(ifTag)) {
+      this.fail("invalid-tag", `Invalid image tag: ${JSON.stringify(ifTag)}`);
+    }
+    this.throwIfMoved(ifTag);
     const manager = this.requireManager();
     const resolved = this.resolveTag(tag);
     const { image, buildConfig } = this.options;
@@ -742,6 +774,7 @@ export class ManagedContainer {
     return this.serialize(async () => {
       throwIfAborted(signal);
       this.throwIfOvertaken(call);
+      this.throwIfMoved(ifTag);
       if (pullError) {
         // A recreate on the image the container runs would report an update
         // that changed nothing. Read under the lock, so no recreate moves the
@@ -759,18 +792,37 @@ export class ManagedContainer {
           `pull of ${ref} failed, recreating on the image the host has: ${errMsg(pullError.err)}`,
         );
       }
-      return this.recreateInner(manager, config, resolved);
+      return this.recreateInner(manager, config, tag, resolved);
     });
+  }
+
+  /**
+   * Rejects an update with `tag-mismatch` where the container is not known to
+   * run the tag its caller expected ({@link ApplyUpdateOptions.ifTag}).
+   */
+  private throwIfMoved(ifTag: string | undefined): void {
+    if (ifTag === undefined || this.runningAs === ifTag) return;
+    const { name } = this.options;
+    throw new ContainerHelperError(
+      "tag-mismatch",
+      this.runningAs === undefined
+        ? `Update of ${name} skipped: it applies only on ${ifTag}, and the tag the container runs is not known, as after a start or update that failed to bring it up.`
+        : `Update of ${name} skipped: it applies only on ${ifTag}, but the container runs ${this.runningAs}.`,
+      true,
+    );
   }
 
   /** The recreate of an update; runs under the lifecycle lock. */
   private async recreateInner(
     manager: ContainerManagerApi,
     config: ContainerConfig,
+    requested: string,
     resolved: string,
   ): Promise<{ tag: string }> {
     const { name, image } = this.options;
     const { ensureOptions } = this;
+    // Unknown until the recreate succeeds; a failed one may have removed it.
+    this.runningAs = undefined;
     this.status(`Recreating ${name} with ${image}:${resolved}...`);
     if (typeof manager.recreate === "function") {
       // Past this point the container may have changed, so the signal no
@@ -805,6 +857,7 @@ export class ManagedContainer {
     // on the image the operator just moved away from.
     this.lifecycle++;
     this.lastStartedTag = resolved;
+    this.runningAs = requested;
 
     if (this.options.readiness) {
       const addr = await this.resolveAddress(this.options.readiness.port);

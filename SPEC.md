@@ -151,7 +151,7 @@ const container = new ManagedContainer({
 
 await container.start(tag?)        // full bring-up; returns { manager, tag, address }
 await container.stop(options?)     // unregister + stop (not remove), except on server shutdown; never throws
-await container.applyUpdate(tag)   // recreate, or legacy pull+remove+ensureRunning; cancelled by a later start/stop
+await container.applyUpdate(tag, { pull?, ifTag?, signal? })  // recreate, or legacy pull+remove+ensureRunning; cancelled by a later start/stop
 await container.checkForUpdate()   // updates.checkOne → UpdateCheckResult | null
 await container.getState()         // ContainerState ('unknown-manager' safe default)
 await container.getStateDetail()   // state + exitCode / oomKilled / restartCount
@@ -253,6 +253,7 @@ class ContainerHelperError extends Error {
     | "recreate-failed"
     | "recreate-limbo"
     | "cancelled"
+    | "tag-mismatch"
     | "invalid-option"
     | "unsupported-manager"
     | "path-unreachable";
