@@ -157,9 +157,13 @@ export interface ApplyUpdateOptions extends OperationOptions {
    * or no container is listed: as on a rollback while offline, or where an
    * update check already pulled the new image. Where the host has the image
    * the container runs, or cannot tell, the update rejects with `pull-failed`
-   * and leaves the container as it was. The pull runs
-   * under the lifecycle lock, so a `stop()` meanwhile waits for the update,
-   * as it does for a recreate that pulls a missing image.
+   * and leaves the container as it was.
+   *
+   * The pull runs before the update takes the lifecycle lock: signalk-container
+   * cannot cancel a pull, and a `stop()` waiting for one would hold up the
+   * plugin's restart for as long as the download takes. A `stop()` meanwhile
+   * returns at once, and the update then stands down without recreating. A
+   * recreate that pulls a missing image still runs under the lock.
    */
   pull?: boolean;
 }
@@ -214,11 +218,31 @@ export interface UpdateRoutesOptions {
    * Called after a successful apply with the tag as requested by the client
    * (before resolveTag) and the tag actually run. Persist the REQUESTED tag
    * (e.g. "auto") via app.savePluginOptions here so auto-tracking survives.
+   * Not called where the plugin stopped or restarted while the update ran:
+   * its settings may have been saved meanwhile.
    */
   onApplied?: (
     requestedTag: string,
     resolvedTag: string,
   ) => void | Promise<void>;
+}
+
+/** Runs tasks one at a time, in the order they were queued. */
+class SerialQueue {
+  private tail: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Queue `fn` behind any task already in flight. Both settlement paths
+   * advance the queue, so one rejection cannot wedge every later task.
+   */
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn, fn);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 }
 
 /**
@@ -241,29 +265,53 @@ export class ManagedContainer {
    * readiness — interleaves ensureRunning and stop against the same container.
    * Every consumer plugin had built its own lock for this; it belongs here.
    */
-  private chain: Promise<unknown> = Promise.resolve();
+  private readonly lifecycleQueue = new SerialQueue();
   /**
-   * Bumped by every lifecycle operation. A retrying `start()` captures the
-   * value it began with and stands down once it no longer matches, so a stop
-   * or an update retires the loop instead of racing it.
+   * Serializes the updates among themselves, pull included, so they apply in
+   * the order they were called. An update takes the lifecycle lock only for
+   * the recreate, after its pull.
+   */
+  private readonly updateQueue = new SerialQueue();
+  /**
+   * Bumped by start(), by stop(), and by an update once it has recreated the
+   * container. A retrying `start()` captures the value it began with and
+   * stands down once it no longer matches, so a stop or an update retires the
+   * loop instead of racing it. An update that fails before its recreate does
+   * not bump it, and leaves the loop to bring the container up.
    */
   private lifecycle = 0;
+  /** Numbers the start(), stop() and applyUpdate() calls in call order. */
+  private calls = 0;
+  /** The number of the latest start() or stop() call; 0 before either. */
+  private lastStartOrStop = 0;
+  /** Between a start() call and the next stop() call. */
+  private started = false;
 
   constructor(options: ManagedContainerOptions) {
     this.options = options;
   }
 
-  /**
-   * Queue `fn` behind any operation already in flight. Both settlement paths
-   * advance the chain, so one rejection cannot wedge every later call.
-   */
+  /** Queue `fn` behind any lifecycle operation already in flight. */
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(fn, fn);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined,
+    return this.lifecycleQueue.run(fn);
+  }
+
+  /**
+   * Rejects update `call` as `cancelled` where the plugin's lifecycle has
+   * overtaken it: called while stopped (or before any start), or before the
+   * latest start() or stop(). signalk-server mounts plugin routes whether the
+   * plugin runs or not, and a restart for a config save must not find the
+   * container recreated by an update the old run asked for.
+   */
+  private throwIfOvertaken(call: number): void {
+    if (this.started && this.lastStartOrStop < call) return;
+    throw new ContainerHelperError(
+      "cancelled",
+      this.started
+        ? `Update of ${this.options.name} cancelled: the plugin restarted while it ran.`
+        : `Update of ${this.options.name} cancelled: the plugin is stopped.`,
+      true,
     );
-    return run;
   }
 
   private get app(): AppLike {
@@ -370,6 +418,8 @@ export class ManagedContainer {
    * which reports both kinds.
    */
   async start(tag?: string, options?: OperationOptions): Promise<StartResult> {
+    this.lastStartOrStop = ++this.calls;
+    this.started = true;
     const retry = this.options.readinessRetry;
     if (!retry) {
       return this.serialize(() => this.startInner(tag, options?.signal));
@@ -586,10 +636,16 @@ export class ManagedContainer {
    * instantly without a pull. Pass the options plugin.stop() received: on a
    * server shutdown the container keeps running (see {@link StopOptions}).
    * Never throws.
+   *
+   * Cancels every update called before it: one still pulling is not waited
+   * for, and stands down once its pull ends, without recreating. One already
+   * recreating is waited for, since a recreate cannot be interrupted.
    */
   async stop(options?: StopOptions): Promise<void> {
     // Retires any retry loop still running; see the `lifecycle` field.
     this.lifecycle++;
+    this.lastStartOrStop = ++this.calls;
+    this.started = false;
     return this.serialize(() => this.stopInner(options?.reason));
   }
 
@@ -635,56 +691,86 @@ export class ManagedContainer {
    * Only `recreate-failed` and `recreate-limbo` come after the container may
    * have changed; every other rejection, such as `pull-failed` or
    * `cancelled`, left it as it was.
+   *
+   * Updates apply in the order they were called. One called while the plugin
+   * is stopped (after `stop()`, or before any `start()`), or overtaken by a
+   * `start()` or `stop()` before its recreate, rejects as `cancelled`. A
+   * `start()` still retrying under `readinessRetry` stands down once the
+   * update has recreated the container, not before: an update that fails
+   * earlier, as on a pull while offline, leaves it retrying.
    */
   async applyUpdate(
     tag: string,
     options?: ApplyUpdateOptions,
   ): Promise<{ tag: string }> {
-    // A pending retry of the previous tag must not outlive this update and
-    // restart the container on the image the operator just moved away from.
-    this.lifecycle++;
-    return this.serialize(() =>
-      this.applyUpdateInner(tag, options?.signal, options?.pull === true),
+    const call = ++this.calls;
+    return this.updateQueue.run(() =>
+      this.applyUpdateInner(call, tag, options?.signal, options?.pull === true),
     );
   }
 
   private async applyUpdateInner(
+    call: number,
     tag: string,
     signal: AbortSignal | undefined,
     pull: boolean,
   ): Promise<{ tag: string }> {
     throwIfAborted(signal);
+    this.throwIfOvertaken(call);
     const manager = this.requireManager();
     const resolved = this.resolveTag(tag);
-    const { name, image, buildConfig } = this.options;
-    const { ensureOptions } = this;
+    const { image, buildConfig } = this.options;
     const config = buildConfig(resolved);
+    const legacy = typeof manager.recreate !== "function";
+    // The reference the recreate runs, which buildConfig may spell
+    // differently from the options. Before 1.12.0 the update always pulls.
+    const ref = legacy
+      ? `${image}:${resolved}`
+      : `${config.image}:${config.tag}`;
 
-    if (pull && typeof manager.recreate === "function" && !config.digest) {
-      // The reference the recreate runs, which buildConfig may spell
-      // differently from the options.
-      const ref = `${config.image}:${config.tag}`;
+    // Outside the lifecycle lock; see ApplyUpdateOptions.pull.
+    let pullError: { err: unknown } | undefined;
+    if (legacy || (pull && !config.digest)) {
       this.status(`Pulling ${ref}...`);
       try {
         await manager.pullImage(ref);
       } catch (err) {
-        throwIfAborted(signal);
+        pullError = { err };
+      }
+    }
+
+    return this.serialize(async () => {
+      throwIfAborted(signal);
+      this.throwIfOvertaken(call);
+      if (pullError) {
         // A recreate on the image the container runs would report an update
-        // that changed nothing.
-        const other = await this.hostHasOtherImage(manager, ref);
+        // that changed nothing. Read under the lock, so no recreate moves the
+        // container meanwhile.
+        const other = !legacy && (await this.hostHasOtherImage(manager, ref));
         throwIfAborted(signal);
+        this.throwIfOvertaken(call);
         if (!other) {
           this.fail(
             "pull-failed",
-            `Could not pull ${ref}, the container was left as it was: ${errMsg(err)}`,
+            `Could not pull ${ref}, the container was left as it was: ${errMsg(pullError.err)}`,
           );
         }
         this.app.debug(
-          `pull of ${ref} failed, recreating on the image the host has: ${errMsg(err)}`,
+          `pull of ${ref} failed, recreating on the image the host has: ${errMsg(pullError.err)}`,
         );
       }
-      throwIfAborted(signal);
-    }
+      return this.recreateInner(manager, config, resolved);
+    });
+  }
+
+  /** The recreate of an update; runs under the lifecycle lock. */
+  private async recreateInner(
+    manager: ContainerManagerApi,
+    config: ContainerConfig,
+    resolved: string,
+  ): Promise<{ tag: string }> {
+    const { name, image } = this.options;
+    const { ensureOptions } = this;
     this.status(`Recreating ${name} with ${image}:${resolved}...`);
     if (typeof manager.recreate === "function") {
       // Past this point the container may have changed, so the signal no
@@ -698,23 +784,12 @@ export class ManagedContainer {
         );
       }
     } else {
-      const ref = `${image}:${resolved}`;
-      try {
-        await manager.pullImage(ref);
-      } catch (err) {
-        throwIfAborted(signal);
-        this.fail(
-          "pull-failed",
-          `Could not pull ${ref}, the container was left as it was: ${errMsg(err)}`,
-        );
-      }
-      throwIfAborted(signal);
       try {
         await manager.remove(name);
       } catch (err) {
         this.fail(
           "recreate-failed",
-          `Removing ${name} to recreate it with ${ref} failed: ${errMsg(err)}. Apply the update again to retry.`,
+          `Removing ${name} to recreate it with ${image}:${resolved} failed: ${errMsg(err)}. Apply the update again to retry.`,
         );
       }
       try {
@@ -726,6 +801,9 @@ export class ManagedContainer {
         );
       }
     }
+    // A start() still retrying the previous tag must not restart the container
+    // on the image the operator just moved away from.
+    this.lifecycle++;
     this.lastStartedTag = resolved;
 
     if (this.options.readiness) {
@@ -843,7 +921,10 @@ export class ManagedContainer {
    *   POST <basePath>/apply → { success: true, tag } — body { tag?: string }
    *
    * The apply pulls the tag, then recreates the container on it
-   * (`applyUpdate()` with {@link ApplyUpdateOptions.pull}).
+   * (`applyUpdate()` with {@link ApplyUpdateOptions.pull}). It answers 409,
+   * without calling `onApplied`, where the plugin is stopped, or stops or
+   * restarts while the update runs: signalk-server keeps the routes of a
+   * stopped or disabled plugin mounted.
    *
    * Persist the requested tag from `onApplied` (e.g. via
    * app.savePluginOptions) so the user's choice survives restarts.
@@ -884,12 +965,26 @@ export class ManagedContainer {
           .json({ error: `Invalid tag: ${JSON.stringify(requested)}` });
         return;
       }
+      const startOrStop = this.lastStartOrStop;
       try {
         const { tag } = await this.applyUpdate(requested, { pull: true });
+        // A stop or restart during the recreate: onApplied would save the
+        // tag over settings the restart may have just saved, so the next
+        // start runs the configured tag again.
+        if (this.lastStartOrStop !== startOrStop) {
+          res.status(409).json({
+            error: `The plugin stopped or restarted while the update ran, so ${tag} was not saved.`,
+          });
+          return;
+        }
         await onApplied?.(requested, tag);
         res.json({ success: true, tag });
       } catch (err) {
         const msg = errMsg(err);
+        if (err instanceof ContainerHelperError && err.code === "cancelled") {
+          res.status(409).json({ error: msg });
+          return;
+        }
         this.app.setPluginError(`Update failed: ${msg}`);
         res.status(500).json({ error: msg });
       }
