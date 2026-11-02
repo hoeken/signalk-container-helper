@@ -8,11 +8,17 @@ import {
   updateImageAfterPluginUpdate,
   type ImageAfterPluginUpdateOptions,
 } from "../src/plugin-update.js";
-import { classifyTag } from "../src/util.js";
+import { ManagedContainer } from "../src/managed-container.js";
+import { ContainerHelperError, classifyTag } from "../src/util.js";
 // signalk-container's own classifier, which classifyTag() mirrors. A test may
 // import the devDependency; the library itself never does.
 import { classifyTag as canonicalClassifyTag } from "../node_modules/signalk-container/dist/updates/tagClassifier.js";
-import { makeManager } from "./fixtures.js";
+import {
+  clearManager,
+  installManager,
+  makeApp,
+  makeManager,
+} from "./fixtures.js";
 
 describe("isLaterVersion", () => {
   it("compares major, minor and patch as numbers", () => {
@@ -830,5 +836,55 @@ describe("updateImageAfterPluginUpdate", () => {
       "pull failed",
     );
     expect(await recorded()).toEqual({ pluginVersion: "2.3.2" });
+  });
+
+  it("leaves an operator's pin made while it waited, with the README recipe", async () => {
+    // Issue #79: on a metered link the check waits; meanwhile "Update now"
+    // pins 9.4.3. Once the link is free, the recipe must not move the
+    // container back to `latest`.
+    const { manager, options } = await setup();
+    installManager(manager);
+    try {
+      const container = new ManagedContainer({
+        app: makeApp(),
+        pluginId: "test-plugin",
+        name: "questdb",
+        image: "questdb/questdb",
+        buildConfig: (t) => ({ image: "questdb/questdb", tag: t }),
+      });
+      const tag = "latest";
+      await container.start(tag);
+      let restricted = true;
+      manager.internet = { isRestricted: vi.fn(async () => restricted) };
+      const update = async (signal: AbortSignal) => {
+        try {
+          await container.applyUpdate(tag, { pull: true, ifTag: tag, signal });
+          return true;
+        } catch (err) {
+          if (
+            err instanceof ContainerHelperError &&
+            err.code === "tag-mismatch"
+          ) {
+            return false;
+          }
+          throw err;
+        }
+      };
+
+      const check = updateImageAfterPluginUpdate({ ...options, tag, update });
+      await vi.waitFor(() =>
+        expect(manager.internet!.isRestricted).toHaveBeenCalled(),
+      );
+      await container.applyUpdate("9.4.3", { pull: true });
+      restricted = false;
+
+      await expect(check).resolves.toBe("not-applied");
+      expect(container.lastStartedTag).toBe("9.4.3");
+      expect(manager.recreate).toHaveBeenCalledTimes(1);
+      // Not recorded: the next start reads the pinned tag and leaves it.
+      expect(await recorded()).toEqual({ pluginVersion: "2.3.2" });
+    } finally {
+      clearManager();
+    }
   });
 });

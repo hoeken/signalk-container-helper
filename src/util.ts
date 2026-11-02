@@ -163,6 +163,7 @@ export type ContainerHelperErrorCode =
   | "recreate-failed"
   | "recreate-limbo"
   | "cancelled"
+  | "tag-mismatch"
   | "invalid-option"
   | "unsupported-manager"
   | "path-unreachable"
