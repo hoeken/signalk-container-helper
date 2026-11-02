@@ -156,8 +156,8 @@ export interface ApplyUpdateOptions extends OperationOptions {
    * tag only if that is another image than the container runs (by image id)
    * or no container is listed: as on a rollback while offline, or where an
    * update check already pulled the new image. Where the host has the image
-   * the container runs, or cannot tell, the update rejects and leaves the
-   * container as it was. The pull runs
+   * the container runs, or cannot tell, the update rejects with `pull-failed`
+   * and leaves the container as it was. The pull runs
    * under the lifecycle lock, so a `stop()` meanwhile waits for the update,
    * as it does for a recreate that pulls a missing image.
    */
@@ -363,8 +363,11 @@ export class ManagedContainer {
    *
    * Emits progress via setPluginStatus but never sets a final "Running"
    * status — that message belongs to the plugin. Throws ContainerHelperError
-   * (already reported via setPluginError) on fatal conditions; pair with
-   * `startSafely` in a synchronous plugin.start().
+   * (already reported via setPluginError) on fatal conditions, including
+   * `ensure-failed` where signalk-container could not create or start the
+   * container; what your own `resolveTag` or `buildConfig` throws passes
+   * through as it is. Pair with `startSafely` in a synchronous plugin.start(),
+   * which reports both kinds.
    */
   async start(tag?: string, options?: OperationOptions): Promise<StartResult> {
     const retry = this.options.readinessRetry;
@@ -477,7 +480,15 @@ export class ManagedContainer {
     if (!reconciled) {
       throwIfAborted(signal);
       this.status(`Starting ${desiredImage}...`);
-      await manager.ensureRunning(name, config, ensureOptions);
+      try {
+        await manager.ensureRunning(name, config, ensureOptions);
+      } catch (err) {
+        throwIfAborted(signal);
+        this.fail(
+          "ensure-failed",
+          `Could not start ${desiredImage}: ${errMsg(err)}`,
+        );
+      }
     }
     throwIfAborted(signal);
     this.lastStartedTag = resolved;
@@ -617,6 +628,13 @@ export class ManagedContainer {
    *
    * Returns the resolved tag. When readiness is configured the address is
    * re-resolved afterwards (non-fatal on failure).
+   *
+   * Rejects with a `ContainerHelperError` already reported through
+   * `setPluginError` (a `cancelled` one is not shown), except for what your
+   * own `resolveTag` or `buildConfig` throws, which passes through as it is.
+   * Only `recreate-failed` and `recreate-limbo` come after the container may
+   * have changed; every other rejection, such as `pull-failed` or
+   * `cancelled`, left it as it was.
    */
   async applyUpdate(
     tag: string,
@@ -655,7 +673,12 @@ export class ManagedContainer {
         // that changed nothing.
         const other = await this.hostHasOtherImage(manager, ref);
         throwIfAborted(signal);
-        if (!other) throw err;
+        if (!other) {
+          this.fail(
+            "pull-failed",
+            `Could not pull ${ref}, the container was left as it was: ${errMsg(err)}`,
+          );
+        }
         this.app.debug(
           `pull of ${ref} failed, recreating on the image the host has: ${errMsg(err)}`,
         );
@@ -664,10 +687,36 @@ export class ManagedContainer {
     }
     this.status(`Recreating ${name} with ${image}:${resolved}...`);
     if (typeof manager.recreate === "function") {
-      await manager.recreate(name, config, ensureOptions);
+      // Past this point the container may have changed, so the signal no
+      // longer turns a failure into "cancelled": that code means it did not.
+      try {
+        await manager.recreate(name, config, ensureOptions);
+      } catch (err) {
+        this.fail(
+          "recreate-failed",
+          `Recreating ${name} with ${image}:${resolved} failed: ${errMsg(err)}. Apply the update again to retry.`,
+        );
+      }
     } else {
-      await manager.pullImage(`${image}:${resolved}`);
-      await manager.remove(name);
+      const ref = `${image}:${resolved}`;
+      try {
+        await manager.pullImage(ref);
+      } catch (err) {
+        throwIfAborted(signal);
+        this.fail(
+          "pull-failed",
+          `Could not pull ${ref}, the container was left as it was: ${errMsg(err)}`,
+        );
+      }
+      throwIfAborted(signal);
+      try {
+        await manager.remove(name);
+      } catch (err) {
+        this.fail(
+          "recreate-failed",
+          `Removing ${name} to recreate it with ${ref} failed: ${errMsg(err)}. Apply the update again to retry.`,
+        );
+      }
       try {
         await manager.ensureRunning(name, config, ensureOptions);
       } catch (recreateErr) {

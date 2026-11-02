@@ -248,6 +248,9 @@ class ContainerHelperError extends Error {
     | "invalid-tag"
     | "address-unresolved"
     | "not-ready"
+    | "ensure-failed"
+    | "pull-failed"
+    | "recreate-failed"
     | "recreate-limbo"
     | "cancelled"
     | "invalid-option"
@@ -285,6 +288,10 @@ type, forcing feature-detection at call sites:
   results (`null`, `'unknown'`) plus `app.debug`.
 - `start()` / `applyUpdate()` throw typed `ContainerHelperError`s with actionable
   messages; the helper sets `setPluginError` first and marks the error `reported`.
+  A rejection from signalk-container is wrapped the same way: `ensure-failed`
+  (`ensureRunning` in `start()`), `pull-failed` and `recreate-failed` (in
+  `applyUpdate()`). Errors thrown by the consumer's own `buildConfig` or
+  `resolveTag` pass through unwrapped.
 - The legacy update path preserves the "Container removed but recreation failed —
   retry" limbo message (`code: 'recreate-limbo'`).
 - Offline is normal: nothing in the helper converts a network failure into a fatal.
