@@ -1163,6 +1163,9 @@ npm run ci-lint   # eslint + prettier --check (what CI runs)
 
 CI (`.github/workflows/ci.yml`) runs `ci-lint`, `build`, and `test` on every push and pull request.
 
+This is a strict TypeScript project, tooling configs included; see
+[CONTRIBUTING.md](CONTRIBUTING.md) before you send a change.
+
 ## Releasing
 
 This library is distributed through **npm with semver** — consumers `npm install signalk-container-helper` and pin a range (`^1.0.0`); they never build against `master`. `master` is the development trunk and may be mid-change without affecting anyone.

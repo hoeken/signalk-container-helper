@@ -74,6 +74,7 @@
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
+    "jiti": "^2.7.0",
     "prettier": "^3.8.1",
     "react": "^19.0.0",
     "signalk-container": "^1.38.0",
