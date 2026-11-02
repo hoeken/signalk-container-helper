@@ -1048,10 +1048,12 @@ the container at every start.
 
 `update()` is yours because the recreate has to run under your plugin's own
 lifecycle lock. Pull first, then recreate: `recreate()` alone does not pull an
-image that is already on the host. Resolve true once the container was
-recreated, and throw only before anything changed, since a throw records
-nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates under its
-own lock:
+image that is already on the host. Pull yourself rather than passing
+`pull: true` to `applyUpdate()`: there a failed pull rejects as a failed
+recreate does, which the recipe below counts as applied. Resolve true once the
+container was recreated, and throw only before anything changed, since a throw
+records nothing. With a `ManagedContainer`, whose `applyUpdate()` recreates
+under its own lock:
 
 ```ts
 async function yourUpdate(signal: AbortSignal): Promise<boolean> {
