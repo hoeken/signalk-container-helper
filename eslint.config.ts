@@ -4,22 +4,33 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier/flat";
 import globals from "globals";
 
+// TypeScript, like every other source file here (see AGENTS.md). ESLint loads
+// it through the `jiti` devDependency at lint time; there is no compile step,
+// and tsconfig.json includes only src, so it is never emitted into dist/.
+
 export default defineConfig([
   globalIgnores(["dist", "node_modules"]),
 
-  // Root-level tooling config is outside tsconfig.test.json's include, so it
-  // cannot be type-checked; lint it with the untyped tier instead.
   {
-    files: ["*.js", "*.ts"],
-    extends: [js.configs.recommended, tseslint.configs.recommended, prettier],
-    languageOptions: {
-      parser: tseslint.parser,
-      globals: globals.node,
+    // A strict TypeScript project has no hand-written JavaScript: flag any
+    // that turns up, so CI fails on it rather than leaving it unchecked.
+    files: ["**/*.{js,mjs,cjs,jsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Program",
+          message:
+            "This is a strict TypeScript project: write .ts, not JavaScript (see AGENTS.md).",
+        },
+      ],
     },
   },
 
   {
-    files: ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
+    // The root tooling configs (this file, vitest.config.ts) are type-checked
+    // through tsconfig.test.json's include and linted at the same tier.
+    files: ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}", "*.ts"],
     extends: [
       js.configs.recommended,
       // Type-checked tier, not plain `recommended`. This library is async-heavy
@@ -32,9 +43,10 @@ export default defineConfig([
     ],
     languageOptions: {
       parser: tseslint.parser,
-      // tsconfig.test.json extends tsconfig.json and includes both src and
-      // test, so it alone covers every linted source file. tsconfig.json is
-      // src-only and would leave tests unparseable under type-aware rules.
+      // tsconfig.test.json extends tsconfig.json and includes src, test and
+      // the root configs, so it alone covers every linted file. tsconfig.json
+      // is src-only and would leave the rest unparseable under type-aware
+      // rules.
       parserOptions: {
         project: ["./tsconfig.test.json"],
         tsconfigRootDir: import.meta.dirname,
@@ -42,7 +54,8 @@ export default defineConfig([
       globals: globals.node,
     },
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
+      // Strict TypeScript: reach for `unknown` and narrow instead.
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": "error",
     },
   },

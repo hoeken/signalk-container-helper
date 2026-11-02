@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Working notes for AI agents and human contributors. `CLAUDE.md` points here; this
-file is the single source of truth.
+Working notes for AI agents and human contributors. `CLAUDE.md` and
+`CONTRIBUTING.md` point here; this file is the single source of truth.
 
 ## What this is
 
@@ -45,6 +45,7 @@ src/            library source (ESM, .js extensions in relative imports)
   ui/           browser entry — React building blocks
     components.tsx  the only .tsx in the repo; everything else is .ts
 test/           vitest suites + types-contract.test-d.ts
+eslint.config.ts, vitest.config.ts   tooling configs, TypeScript too
 ```
 
 The UI source **does** use JSX (`components.tsx`, `tsconfig` sets
@@ -83,6 +84,36 @@ clause when condensing two blocks into one. So when mirroring:
 `test/types-doc-anchors.test.ts` pins these claims for the known-dangerous
 members. It is a tripwire against re-simplification, not a general guard — it
 has no power over a member nobody has audited yet.
+
+## Strict TypeScript only
+
+This is a strict TypeScript project, and that is not up for negotiation per
+change. It applies to every file a human writes, not only to `src/`:
+
+- **Every source file is TypeScript**: the library (`src/`), the tests
+  (`test/`) and the tooling configs at the root (`eslint.config.ts`,
+  `vitest.config.ts`). There is no `.js`, `.mjs`, `.cjs` or `.jsx` file in
+  the repository; the only JavaScript is what `tsc` emits into `dist/`, and
+  `eslint` (so `npm run ci-lint`, so CI) fails on any other. A new config or
+  script goes in as `.ts`: ESLint loads a TypeScript config through the `jiti`
+  devDependency, and Vitest loads its own natively.
+- **The compiler settings are a floor.** `tsconfig.json` sets `strict`,
+  `noUncheckedIndexedAccess` and `noImplicitOverride`. Never relax them, in
+  `tsconfig.json`, in `tsconfig.test.json`, or with a per-file pragma. Add a
+  stricter flag only together with the code that passes it.
+- **Everything is type-checked.** `npm run build` checks `src/`; `npm test`
+  first runs `tsc` over `tsconfig.test.json`, which covers `src/`, `test/` and
+  the root configs, so a type error in any of them fails the run. Do not add a
+  TypeScript file outside that include.
+- **Everything is linted at the type-checked tier** (`typescript-eslint`'s
+  `recommendedTypeChecked`), root configs included. `no-explicit-any` is an
+  error: take `unknown` and narrow it. No `@ts-ignore` or `@ts-nocheck`; where a
+  `@ts-expect-error` cannot be avoided, it says why on the same line. There is
+  none of either today.
+- **Do not loosen a type to make something compile.** Fix the type, or narrow
+  with a check the reader can follow. Casts in tests to hand a mock where a
+  real object is expected (`as never`, `as unknown as Mock<…>`) are the one
+  routine exception.
 
 ## Commands
 
@@ -141,9 +172,9 @@ polyfill Node core. `URL` is a global in both runtimes; just use it.
 
 ### `test/` is compiled by a separate tsconfig
 
-`tsconfig.json` covers `src/**` only. Test type errors surface via
-`npm run typecheck:test` (`tsconfig.test.json`), which `npm test` runs first. A
-type error in a test does not fail `npm run build`.
+`tsconfig.json` covers `src/**` only. Type errors in tests and in the root
+configs surface via `npm run typecheck:test` (`tsconfig.test.json`), which
+`npm test` runs first. A type error there does not fail `npm run build`.
 
 ### Release notes are generated from merged PR titles
 
