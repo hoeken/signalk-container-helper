@@ -32,6 +32,8 @@ import type {
   SelfDeploymentResult as CanonicalSelfDeploymentResult,
   SelfDeploymentStatus as CanonicalSelfDeploymentStatus,
   ContainerManagerApi as CanonicalContainerManagerApi,
+  InternetApi as CanonicalInternetApi,
+  InternetCheckOptions as CanonicalInternetCheckOptions,
 } from "signalk-container/types";
 import type {
   ConsumerManifest,
@@ -55,6 +57,8 @@ import type {
   SelfDeploymentResult,
   SelfDeploymentStatus,
   ContainerManagerApi,
+  InternetApi,
+  InternetCheckOptions,
 } from "../src/types.js";
 
 // Exact structural equality: resolves to `true` only when A and B are
@@ -140,6 +144,12 @@ export type _SelfDeploymentResult = Expect<
 export type _VersionSourceResult = Expect<
   Equals<VersionSourceResult, CanonicalVersionSourceResult>
 >;
+// containers.internet (signalk-container 1.38.0+). Plain value and method
+// types with nothing softened, so equality holds both ways.
+export type _InternetCheckOptions = Expect<
+  Equals<InternetCheckOptions, CanonicalInternetCheckOptions>
+>;
+export type _InternetApi = Expect<Equals<InternetApi, CanonicalInternetApi>>;
 // VersionSource is directional, not equal: its `fetch(runtime)` parameter is
 // ContainerRuntimeInfo, which our mirror intentionally softens (the
 // deprecated `isPodmanDockerShim` is optional here, required upstream). A
@@ -187,7 +197,7 @@ export type _UpdateServiceApi = Assignable<
 // typechecking.
 //
 // `keyof` covers properties as well as methods, so this pins the whole surface
-// (31 members today) — including `updates`, `manifest` and `doctor`.
+// (34 members today) — including `updates`, `manifest`, `doctor` and `internet`.
 type MissingFromMirror = Exclude<
   keyof CanonicalContainerManagerApi,
   keyof ContainerManagerApi
