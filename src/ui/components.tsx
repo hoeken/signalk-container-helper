@@ -249,29 +249,50 @@ export function Button({
 
 /**
  * The action-outcome line under the form: green for success, red for
- * failure. Renders (with reserved height) only when `message` is set.
+ * failure, announced to screen readers. Takes space only when `message` is
+ * set.
+ *
+ * A success goes into a `role="status"` region that stays mounted, since a
+ * polite live region is announced reliably only when its content changes,
+ * not when it appears together with its text. A failure is a `role="alert"`
+ * mounted with its text, which is announced on insertion. Pass `id` to point
+ * the failing field's `aria-describedby` at the message (and set
+ * `aria-invalid` on it), so the error is tied to the field that needs fixing.
  */
 export function ActionStatus({
   message,
   error = false,
+  id,
   style,
 }: {
   message: string;
   error?: boolean;
+  /** Element id of the message, for the failing field's `aria-describedby`. */
+  id?: string;
   style?: CSSProperties;
 }) {
-  if (!message) return null;
+  const lineStyle: CSSProperties = {
+    ...S.status,
+    color: error ? stateColors.error : stateColors.ok,
+    marginTop: 16,
+    ...style,
+  };
+  const success = message && !error ? message : "";
   return (
-    <div
-      style={{
-        ...S.status,
-        color: error ? stateColors.error : stateColors.ok,
-        marginTop: 16,
-        ...style,
-      }}
-    >
-      {message}
-    </div>
+    <>
+      <div
+        role="status"
+        id={success ? id : undefined}
+        style={success ? lineStyle : undefined}
+      >
+        {success}
+      </div>
+      {message && error && (
+        <div role="alert" id={id} style={lineStyle}>
+          {message}
+        </div>
+      )}
+    </>
   );
 }
 
