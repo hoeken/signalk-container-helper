@@ -823,6 +823,19 @@ Adopt these even where you don't use the components:
   checked 3h ago", don't paint the panel red.
 - **Persist the requested tag, not the resolved one** after an update, so
   floating tags like `latest` keep auto-tracking.
+- **Tie a form error to the field it is about.** `ActionStatus` announces
+  its message to screen readers (an alert for an error, a polite status for a
+  success). Give it an `id` and, while the error stands, set `aria-invalid`
+  and `aria-describedby` on the field so the message is read with it:
+
+  ```jsx
+  <input
+    aria-invalid={rateError ? true : undefined}
+    aria-describedby={rateError ? "save-status" : undefined}
+  />
+  <ActionStatus id="save-status" message={rateError || saved} error={!!rateError} />
+  ```
+
 - **Match the remote's module format to your package's `type` field.** The
   server injects `<script type="module">` for `"type": "module"` plugins and
   a plain script tag otherwise; the wrong webpack `library` type fails only
