@@ -119,8 +119,8 @@ describe("managedModeSchema", () => {
     // The trap this whole feature fell into once: RJSF renders anything in
     // `properties` regardless of the dependency, so a consumer who keeps
     // externalUrl in BOTH places gets a field that never hides. The fragment
-    // and the dependency are therefore returned separately, and the README
-    // tells consumers to splice only one of them.
+    // and the dependency are therefore returned separately, and
+    // doc/self-hosted.md tells consumers to splice only one of them.
     const m = managedModeSchema(OPTS);
     const dep = m.dependencies as {
       managedContainer: { oneOf: { properties: Record<string, unknown> }[] };

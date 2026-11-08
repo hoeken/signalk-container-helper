@@ -838,7 +838,7 @@ describe("updateImageAfterPluginUpdate", () => {
     expect(await recorded()).toEqual({ pluginVersion: "2.3.2" });
   });
 
-  it("leaves an operator's pin made while it waited, with the README recipe", async () => {
+  it("leaves an operator's pin made while it waited, with the documented recipe", async () => {
     // Issue #79: on a metered link the check waits; meanwhile "Update now"
     // pins 9.4.3. Once the link is free, the recipe must not move the
     // container back to `latest`.
