@@ -52,8 +52,9 @@ The UI source **does** use JSX (`components.tsx`, `tsconfig` sets
 `"jsx": "react"`), but `tsc` emits plain `React.createElement` calls — verified:
 zero raw JSX in `dist/`. That emitted shape is what lets consumer webpack builds
 that exclude `node_modules` from babel-loader bundle the shipped `dist/`
-directly. The "no JSX" property README refers to is about the **artifact**, not
-the source; do not add a JSX transform expectation for consumers.
+directly. The "no JSX" property doc/config-panel.md refers to is about the
+**artifact**, not the source; do not add a JSX transform expectation for
+consumers.
 
 `src/types.ts` mirrors `signalk-container`'s API. `test/types-contract.test-d.ts`
 pins the mirror's **shape** — structural equality and name coverage — so a

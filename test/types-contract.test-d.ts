@@ -186,7 +186,7 @@ export type _UpdateServiceApi = Assignable<
 // --- ContainerManagerApi: NAME coverage only (#27). ---
 // A structural `Equals` is impossible here by design: canonical declares every
 // member required, while this mirror marks feature-detected members optional so
-// consumers can probe older installs (README: "Feature-detected members stay
+// consumers can probe older installs (doc/api.md: "Feature-detected members stay
 // optional here"). Relaxing the mirror to force equality would silently drop
 // that contract. Asserting names instead catches the only failure mode that has
 // actually occurred — signalk-container grew a member and the mirror missed it
